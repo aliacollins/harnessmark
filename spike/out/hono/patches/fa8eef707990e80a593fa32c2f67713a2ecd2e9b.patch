@@ -1,0 +1,32 @@
+diff --git a/src/utils/url.test.ts b/src/utils/url.test.ts
+index a2996209..e23ed346 100644
+--- a/src/utils/url.test.ts
++++ b/src/utils/url.test.ts
+@@ -248,6 +248,8 @@ describe('url', () => {
+       expect(getQueryParam('http://example.com/?pretty', 'pretty')).toBe('')
+       expect(getQueryParam('http://example.com/?pretty', 'prtt')).toBe(undefined)
+       expect(getQueryParam('http://example.com/?name=sam&name=tom', 'name')).toBe('sam')
++      expect(getQueryParam('http://example.com/&name=sam?name=tom', 'name')).toBe('tom')
++      expect(getQueryParam('http://example.com/&name=sam', 'name')).toBe(undefined)
+       expect(getQueryParam('http://example.com/?name=sam&name=tom')).toEqual({
+         name: 'sam',
+       })
+diff --git a/src/utils/url.ts b/src/utils/url.ts
+index 8e4dcb43..82350aa9 100644
+--- a/src/utils/url.ts
++++ b/src/utils/url.ts
+@@ -217,9 +217,12 @@ const _getQueryParam = (
+   if (!multiple && key && !/[%+]/.test(key)) {
+     // optimized for unencoded key
+ 
+-    let keyIndex = url.indexOf(`?${key}`, 8)
++    let keyIndex = url.indexOf('?', 8)
+     if (keyIndex === -1) {
+-      keyIndex = url.indexOf(`&${key}`, 8)
++      return undefined
++    }
++    if (!url.startsWith(key, keyIndex + 1)) {
++      keyIndex = url.indexOf(`&${key}`, keyIndex + 1)
+     }
+     while (keyIndex !== -1) {
+       const trailingKeyCode = url.charCodeAt(keyIndex + key.length + 1)

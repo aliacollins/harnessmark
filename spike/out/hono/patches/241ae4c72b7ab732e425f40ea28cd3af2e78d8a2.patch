@@ -1,0 +1,71 @@
+diff --git a/src/helper/cookie/index.test.ts b/src/helper/cookie/index.test.ts
+index 03f0f5e5..7cef8211 100644
+--- a/src/helper/cookie/index.test.ts
++++ b/src/helper/cookie/index.test.ts
+@@ -67,8 +67,8 @@ describe('Cookie Middleware', () => {
+       const res = new Response('Signed fortune cookie')
+       if (typeof fortuneCookie !== 'undefined' && typeof fruitCookie !== 'undefined') {
+         // just examples for tests sake
+-        res.headers.set('Fortune-Cookie', fortuneCookie || 'INVALID')
+-        res.headers.set('Fruit-Cookie', fruitCookie || 'INVALID')
++        res.headers.set('Fortune-Cookie', fortuneCookie === false ? 'INVALID' : fortuneCookie)
++        res.headers.set('Fruit-Cookie', fruitCookie === false ? 'INVALID' : fruitCookie)
+       }
+       return res
+     })
+@@ -79,7 +79,7 @@ describe('Cookie Middleware', () => {
+       const res = new Response('Signed fortune cookie')
+       if (typeof fortuneCookie !== 'undefined') {
+         // just an example for tests sake
+-        res.headers.set('Fortune-Cookie', fortuneCookie || 'INVALID')
++        res.headers.set('Fortune-Cookie', fortuneCookie === false ? 'INVALID' : fortuneCookie)
+       }
+       return res
+     })
+@@ -124,6 +124,15 @@ describe('Cookie Middleware', () => {
+       expect(res.headers.get('Fortune-Cookie')).toBe('INVALID')
+     })
+ 
++    it('Get signed cookie with empty string value', async () => {
++      const secret = 'secret lucky charm'
++      const emptySignedCookie = await generateSignedCookie('fortune_cookie', '', secret)
++      const req = new Request('http://localhost/cookie-signed-get-one')
++      req.headers.set('Cookie', emptySignedCookie)
++      const res = await app.request(req)
++      expect(res.headers.get('Fortune-Cookie')).toBe('')
++    })
++
+     describe('get null if the value is undefined', () => {
+       const app = new Hono()
+ 
+diff --git a/src/utils/cookie.test.ts b/src/utils/cookie.test.ts
+index 38811255..491d21b3 100644
+--- a/src/utils/cookie.test.ts
++++ b/src/utils/cookie.test.ts
+@@ -201,6 +201,13 @@ describe('Parse cookie', () => {
+     expect(cookie['tasty_cookie']).toBe(false)
+   })
+ 
++  it('Should parse signed cookie with empty string value', async () => {
++    const secret = 'secret ingredient'
++    const cookieString = await serializeSigned('empty_cookie', '', secret)
++    const cookie: SignedCookie = await parseSigned(cookieString, secret)
++    expect(cookie['empty_cookie']).toBe('')
++  })
++
+   it('Should parse signed cookies and return "false" for corrupt signature', async () => {
+     const secret = 'secret ingredient'
+     // yummy_cookie has corrupt signature (i.e. invalid base64 encoding)
+diff --git a/src/utils/cookie.ts b/src/utils/cookie.ts
+index 07dee55a..772670b1 100644
+--- a/src/utils/cookie.ts
++++ b/src/utils/cookie.ts
+@@ -153,7 +153,7 @@ export const parseSigned = async (
+ 
+   for (const [key, value] of Object.entries(parse(cookie, name))) {
+     const signatureStartPos = value.lastIndexOf('.')
+-    if (signatureStartPos < 1) {
++    if (signatureStartPos < 0) {
+       continue
+     }
+ 

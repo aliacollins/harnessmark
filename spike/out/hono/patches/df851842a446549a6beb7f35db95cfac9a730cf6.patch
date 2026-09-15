@@ -1,0 +1,120 @@
+diff --git a/src/middleware/cache/index.test.ts b/src/middleware/cache/index.test.ts
+index 336d5048..a42e61ee 100644
+--- a/src/middleware/cache/index.test.ts
++++ b/src/middleware/cache/index.test.ts
+@@ -170,6 +170,47 @@ describe('Cache Middleware', () => {
+     return c.text('cached')
+   })
+ 
++  let varyWildcardOnlyCount = 0
++  app.use('/vary-wildcard/*', cache({ cacheName: 'vary-wildcard-test', wait: true }))
++  app.get('/vary-wildcard/only', (c) => {
++    varyWildcardOnlyCount++
++    c.header('X-Count', `${varyWildcardOnlyCount}`)
++    c.header('Vary', '*')
++    return c.text('response')
++  })
++
++  let varyWildcardFirstCount = 0
++  app.get('/vary-wildcard/first', (c) => {
++    varyWildcardFirstCount++
++    c.header('X-Count', `${varyWildcardFirstCount}`)
++    c.header('Vary', '*, Accept')
++    return c.text('response')
++  })
++
++  let varyWildcardMiddleCount = 0
++  app.get('/vary-wildcard/middle', (c) => {
++    varyWildcardMiddleCount++
++    c.header('X-Count', `${varyWildcardMiddleCount}`)
++    c.header('Vary', 'Accept, *')
++    return c.text('response')
++  })
++
++  let varyWildcardComplexCount = 0
++  app.get('/vary-wildcard/complex', (c) => {
++    varyWildcardComplexCount++
++    c.header('X-Count', `${varyWildcardComplexCount}`)
++    c.header('Vary', 'Accept, *, Accept-Encoding')
++    return c.text('response')
++  })
++
++  let varyWildcardSpacesCount = 0
++  app.get('/vary-wildcard/spaces', (c) => {
++    varyWildcardSpacesCount++
++    c.header('X-Count', `${varyWildcardSpacesCount}`)
++    c.header('Vary', ' * ')
++    return c.text('response')
++  })
++
+   app.use('/default/*', cache({ cacheName: 'my-app-v1', wait: true, cacheControl: 'max-age=10' }))
+   app.all('/default/:code/', (c) => {
+     const code = parseInt(c.req.param('code'))
+@@ -292,6 +333,36 @@ describe('Cache Middleware', () => {
+     expect(() => cache({ cacheName: 'my-app-v1', wait: true, vary: '*' })).toThrow()
+   })
+ 
++  it('Should not cache response when Vary: * is set', async () => {
++    await app.request('http://localhost/vary-wildcard/only')
++    const res = await app.request('http://localhost/vary-wildcard/only')
++    expect(res.headers.get('x-count')).toBe('2')
++  })
++
++  it('Should not cache response when Vary: *, Accept is set', async () => {
++    await app.request('http://localhost/vary-wildcard/first')
++    const res = await app.request('http://localhost/vary-wildcard/first')
++    expect(res.headers.get('x-count')).toBe('2')
++  })
++
++  it('Should not cache response when Vary: Accept, * is set', async () => {
++    await app.request('http://localhost/vary-wildcard/middle')
++    const res = await app.request('http://localhost/vary-wildcard/middle')
++    expect(res.headers.get('x-count')).toBe('2')
++  })
++
++  it('Should not cache response when Vary: Accept, *, Accept-Encoding is set', async () => {
++    await app.request('http://localhost/vary-wildcard/complex')
++    const res = await app.request('http://localhost/vary-wildcard/complex')
++    expect(res.headers.get('x-count')).toBe('2')
++  })
++
++  it('Should not cache response when Vary contains * with extra spaces', async () => {
++    await app.request('http://localhost/vary-wildcard/spaces')
++    const res = await app.request('http://localhost/vary-wildcard/spaces')
++    expect(res.headers.get('x-count')).toBe('2')
++  })
++
+   it.each([200])('Should cache %i in default cacheable status codes', async (code) => {
+     await app.request(`http://localhost/default/${code}/`)
+     const res = await app.request(`http://localhost/default/${code}/`)
+diff --git a/src/middleware/cache/index.ts b/src/middleware/cache/index.ts
+index cc0de419..c6ec9484 100644
+--- a/src/middleware/cache/index.ts
++++ b/src/middleware/cache/index.ts
+@@ -12,6 +12,14 @@ import type { StatusCode } from '../../utils/http-status'
+  */
+ const defaultCacheableStatusCodes: ReadonlyArray<StatusCode> = [200]
+ 
++const shouldSkipCache = (res: Response) => {
++  const vary = res.headers.get('Vary')
++  // Don't cache for Vary: *
++  // https://www.rfc-editor.org/rfc/rfc9111#section-4.1
++  // Also note that some runtimes throw a TypeError for it.
++  return vary && vary.includes('*')
++}
++
+ /**
+  * Cache Middleware for Hono.
+  *
+@@ -129,6 +137,11 @@ export const cache = (options: {
+       return
+     }
+     addHeader(c)
++
++    if (shouldSkipCache(c.res)) {
++      return
++    }
++
+     const res = c.res.clone()
+     if (options.wait) {
+       await cache.put(key, res)

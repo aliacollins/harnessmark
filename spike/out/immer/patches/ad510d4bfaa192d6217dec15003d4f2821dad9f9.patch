@@ -1,0 +1,47 @@
+diff --git a/__tests__/base.js b/__tests__/base.js
+index b09500a..6e6f7b9 100644
+--- a/__tests__/base.js
++++ b/__tests__/base.js
+@@ -2676,6 +2676,29 @@ function runBaseTest(name, autoFreeze, useStrictShallowCopy, useListener) {
+ 				) // should throw!
+ 			})
+ 
++		autoFreeze &&
++			test("issue #1190 / #1192 - should not freeze non-draftable objects (class instances and typed arrays)", () => {
++				class MutableClass {
++					value = 5
++				}
++
++				const state = {
++					someValue: 5,
++					mutableClass: new MutableClass(),
++					typedArray: new Uint8Array(10)
++				}
++
++				expect(() => {
++					// Should not throw when producing with autoFreeze enabled
++					const result = produce(state, draft => {
++						draft.someValue = 6
++					})
++
++					// Verify the non-draftable class instance is not frozen
++					state.mutableClass.value = 6
++				}).not.toThrow()
++			})
++
+ 		autoFreeze &&
+ 			test("issue #469, state not frozen", () => {
+ 				const project = produce(
+diff --git a/src/utils/common.ts b/src/utils/common.ts
+index 6fccdcc..4627788 100644
+--- a/src/utils/common.ts
++++ b/src/utils/common.ts
+@@ -243,7 +243,7 @@ export function shallowCopy(base: any, strict: StrictMode) {
+  */
+ export function freeze<T>(obj: T, deep?: boolean): T
+ export function freeze<T>(obj: any, deep: boolean = false): T {
+-	if (isFrozen(obj) || isDraft(obj)) return obj
++	if (isFrozen(obj) || isDraft(obj) || !isDraftable(obj)) return obj
+ 	if (getArchtype(obj) > 1 /* Map or Set */) {
+ 		O.defineProperties(obj, {
+ 			set: dontMutateMethodOverride,

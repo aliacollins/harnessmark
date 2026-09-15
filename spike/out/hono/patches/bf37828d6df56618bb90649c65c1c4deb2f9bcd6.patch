@@ -1,0 +1,191 @@
+diff --git a/src/middleware/basic-auth/index.test.ts b/src/middleware/basic-auth/index.test.ts
+index c4065e60..ed2ac653 100644
+--- a/src/middleware/basic-auth/index.test.ts
++++ b/src/middleware/basic-auth/index.test.ts
+@@ -319,3 +319,116 @@ describe('Basic Auth by Middleware', () => {
+     expect(await res.text()).toBe('{"message":"Custom unauthorized message as function object"}')
+   })
+ })
++
++describe('Basic Auth with onAuthSuccess', () => {
++  const username = 'callback-user'
++  const password = 'callback-pass'
++
++  it('should call onAuthSuccess callback on successful auth', async () => {
++    type Env = { Variables: { custom: string } }
++    const app = new Hono<Env>()
++    let callbackCalled = false
++    let callbackUsername = ''
++
++    app.use(
++      '/*',
++      basicAuth({
++        username,
++        password,
++        onAuthSuccess: (c, u) => {
++          callbackCalled = true
++          callbackUsername = u
++          c.set('custom', 'value')
++        },
++      })
++    )
++    app.get('/', (c) => c.text(c.get('custom') || 'no-custom'))
++
++    const credential = Buffer.from(`${username}:${password}`).toString('base64')
++    const res = await app.request('/', {
++      headers: { Authorization: `Basic ${credential}` },
++    })
++
++    expect(callbackCalled).toBe(true)
++    expect(callbackUsername).toBe(username)
++    expect(res.status).toBe(200)
++    expect(await res.text()).toBe('value')
++  })
++
++  it('should support async onAuthSuccess callback', async () => {
++    type Env = { Variables: { asyncValue: string } }
++    const app = new Hono<Env>()
++
++    app.use(
++      '/*',
++      basicAuth({
++        username,
++        password,
++        onAuthSuccess: async (c) => {
++          await new Promise((resolve) => setTimeout(resolve, 10))
++          c.set('asyncValue', 'done')
++        },
++      })
++    )
++    app.get('/', (c) => c.text(c.get('asyncValue') || 'not-done'))
++
++    const credential = Buffer.from(`${username}:${password}`).toString('base64')
++    const res = await app.request('/', {
++      headers: { Authorization: `Basic ${credential}` },
++    })
++    expect(res.status).toBe(200)
++    expect(await res.text()).toBe('done')
++  })
++
++  it('should not call onAuthSuccess on failed auth', async () => {
++    const app = new Hono()
++    let callbackCalled = false
++
++    app.use(
++      '/*',
++      basicAuth({
++        username,
++        password,
++        onAuthSuccess: () => {
++          callbackCalled = true
++        },
++      })
++    )
++    app.get('/', (c) => c.text('ok'))
++
++    const credential = Buffer.from('wrong:wrong').toString('base64')
++    const res = await app.request('/', {
++      headers: { Authorization: `Basic ${credential}` },
++    })
++
++    expect(callbackCalled).toBe(false)
++    expect(res.status).toBe(401)
++  })
++
++  it('should work with verifyUser mode', async () => {
++    type Env = { Variables: { verified: string } }
++    const app = new Hono<Env>()
++    let callbackUsername = ''
++
++    app.use(
++      '/*',
++      basicAuth({
++        verifyUser: (u, p) => u === username && p === password,
++        onAuthSuccess: (c, u) => {
++          callbackUsername = u
++          c.set('verified', 'yes')
++        },
++      })
++    )
++    app.get('/', (c) => c.text(c.get('verified') || 'no'))
++
++    const credential = Buffer.from(`${username}:${password}`).toString('base64')
++    const res = await app.request('/', {
++      headers: { Authorization: `Basic ${credential}` },
++    })
++
++    expect(callbackUsername).toBe(username)
++    expect(res.status).toBe(200)
++    expect(await res.text()).toBe('yes')
++  })
++})
+diff --git a/src/middleware/basic-auth/index.ts b/src/middleware/basic-auth/index.ts
+index b27b38c3..5b2011ea 100644
+--- a/src/middleware/basic-auth/index.ts
++++ b/src/middleware/basic-auth/index.ts
+@@ -18,12 +18,14 @@ type BasicAuthOptions =
+       realm?: string
+       hashFunction?: Function
+       invalidUserMessage?: string | object | MessageFunction
++      onAuthSuccess?: (c: Context, username: string) => void | Promise<void>
+     }
+   | {
+       verifyUser: (username: string, password: string, c: Context) => boolean | Promise<boolean>
+       realm?: string
+       hashFunction?: Function
+       invalidUserMessage?: string | object | MessageFunction
++      onAuthSuccess?: (c: Context, username: string) => void | Promise<void>
+     }
+ 
+ /**
+@@ -38,6 +40,7 @@ type BasicAuthOptions =
+  * @param {Function} [options.hashFunction] - The hash function used for secure comparison.
+  * @param {Function} [options.verifyUser] - The function to verify user credentials.
+  * @param {string | object | MessageFunction} [options.invalidUserMessage="Unauthorized"] - The invalid user message.
++ * @param {Function} [options.onAuthSuccess] - Callback function called on successful authentication.
+  * @returns {MiddlewareHandler} The middleware handler function.
+  * @throws {HTTPException} If neither "username and password" nor "verifyUser" options are provided.
+  *
+@@ -57,6 +60,22 @@ type BasicAuthOptions =
+  *   return c.text('You are authorized')
+  * })
+  * ```
++ *
++ * @example
++ * ```ts
++ * // With onAuthSuccess callback
++ * app.use(
++ *   '/auth/*',
++ *   basicAuth({
++ *     username: 'hono',
++ *     password: 'ahotproject',
++ *     onAuthSuccess: (c, username) => {
++ *       c.set('user', { name: username, role: 'admin' })
++ *       console.log(`User ${username} authenticated`)
++ *     },
++ *   })
++ * )
++ * ```
+  */
+ export const basicAuth = (
+   options: BasicAuthOptions,
+@@ -88,6 +107,9 @@ export const basicAuth = (
+     if (requestUser) {
+       if (verifyUserInOptions) {
+         if (await options.verifyUser(requestUser.username, requestUser.password, ctx)) {
++          if (options.onAuthSuccess) {
++            await options.onAuthSuccess(ctx, requestUser.username)
++          }
+           await next()
+           return
+         }
+@@ -98,6 +120,9 @@ export const basicAuth = (
+             timingSafeEqual(user.password, requestUser.password, options.hashFunction),
+           ])
+           if (usernameEqual && passwordEqual) {
++            if (options.onAuthSuccess) {
++              await options.onAuthSuccess(ctx, requestUser.username)
++            }
+             await next()
+             return
+           }

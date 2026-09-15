@@ -1,0 +1,93 @@
+diff --git a/src/middleware/csrf/index.test.ts b/src/middleware/csrf/index.test.ts
+index 76ea0e0b..b08ce1c2 100644
+--- a/src/middleware/csrf/index.test.ts
++++ b/src/middleware/csrf/index.test.ts
+@@ -324,6 +324,51 @@ describe('CSRF by Middleware', () => {
+         expect(simplePostHandler).not.toHaveBeenCalled()
+       })
+     })
++
++    describe('async IsAllowedOriginHandler', () => {
++      const app = new Hono()
++
++      app.use(
++        '*',
++        csrf({
++          origin: async (origin) => {
++            await new Promise((r) => setTimeout(r, 10))
++            return /https:\/\/(\w+\.)?example\.com$/.test(origin)
++          },
++        })
++      )
++      app.post('/form', simplePostHandler)
++
++      it('should be 200 for allowed origin with async handler', async () => {
++        let res = await app.request(
++          'https://hono.example.com/form',
++          buildSimplePostRequestData({ origin: 'https://hono.example.com' })
++        )
++        expect(res.status).toBe(200)
++
++        res = await app.request(
++          'https://example.com/form',
++          buildSimplePostRequestData({ origin: 'https://example.com' })
++        )
++        expect(res.status).toBe(200)
++      })
++
++      it('should be 403 for not allowed origin with async handler', async () => {
++        let res = await app.request(
++          'http://honojs.hono.example.jp/form',
++          buildSimplePostRequestData({ origin: 'http://example.jp' })
++        )
++        expect(res.status).toBe(403)
++        expect(simplePostHandler).not.toHaveBeenCalled()
++
++        res = await app.request(
++          'http://example.jp/form',
++          buildSimplePostRequestData({ origin: 'http://example.jp' })
++        )
++        expect(res.status).toBe(403)
++        expect(simplePostHandler).not.toHaveBeenCalled()
++      })
++    })
+   })
+ 
+   describe('with secFetchSite option', () => {
+diff --git a/src/middleware/csrf/index.ts b/src/middleware/csrf/index.ts
+index f5ede01f..c7656b68 100644
+--- a/src/middleware/csrf/index.ts
++++ b/src/middleware/csrf/index.ts
+@@ -7,7 +7,7 @@ import type { Context } from '../../context'
+ import { HTTPException } from '../../http-exception'
+ import type { MiddlewareHandler } from '../../types'
+ 
+-type IsAllowedOriginHandler = (origin: string, context: Context) => boolean
++type IsAllowedOriginHandler = (origin: string, context: Context) => boolean | Promise<boolean>
+ 
+ const secFetchSiteValues = ['same-origin', 'same-site', 'none', 'cross-site'] as const
+ type SecFetchSite = (typeof secFetchSiteValues)[number]
+@@ -100,12 +100,12 @@ export const csrf = (options?: CSRFOptions): MiddlewareHandler => {
+       return (origin) => optsOrigin.includes(origin)
+     }
+   })(options?.origin)
+-  const isAllowedOrigin = (origin: string | undefined, c: Context) => {
++  const isAllowedOrigin = async (origin: string | undefined, c: Context) => {
+     if (origin === undefined) {
+       // denied always when origin header is not present
+       return false
+     }
+-    return originHandler(origin, c)
++    return await originHandler(origin, c)
+   }
+ 
+   const secFetchSiteHandler: IsAllowedSecFetchSiteHandler = ((optsSecFetchSite) => {
+@@ -137,7 +137,7 @@ export const csrf = (options?: CSRFOptions): MiddlewareHandler => {
+       !isSafeMethodRe.test(c.req.method) &&
+       isRequestedByFormElementRe.test(c.req.header('content-type') || 'text/plain') &&
+       !isAllowedSecFetchSite(c.req.header('sec-fetch-site'), c) &&
+-      !isAllowedOrigin(c.req.header('origin'), c)
++      !(await isAllowedOrigin(c.req.header('origin'), c))
+     ) {
+       const res = new Response('Forbidden', { status: 403 })
+       throw new HTTPException(403, { res })

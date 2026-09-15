@@ -1,0 +1,179 @@
+diff --git a/src/middleware/body-limit/index.test.ts b/src/middleware/body-limit/index.test.ts
+index 44b6d28b..142e5b7f 100644
+--- a/src/middleware/body-limit/index.test.ts
++++ b/src/middleware/body-limit/index.test.ts
+@@ -198,4 +198,76 @@ describe('Body Limit Middleware', () => {
+       expect(await res.text()).toBe(content)
+     })
+   })
++
++  describe('chunked body bypass scenarios', () => {
++    const handler = vi.fn()
++
++    const buildOversizedRequestInit = (): RequestInit & { duplex: 'half' } => ({
++      method: 'POST',
++      headers: { 'Transfer-Encoding': 'chunked' },
++      body: new ReadableStream({
++        start(controller) {
++          controller.enqueue(new TextEncoder().encode('1234'))
++          controller.enqueue(new TextEncoder().encode('5678901234567890'))
++          controller.close()
++        },
++      }),
++      duplex: 'half',
++    })
++
++    beforeEach(() => {
++      handler.mockReset()
++      app = new Hono()
++      app.use('*', bodyLimit({ maxSize: 8 }))
++      app.post('/no-read', (c) => {
++        handler()
++        return c.text('NO-READ-OK')
++      })
++      app.post('/partial-read', async (c) => {
++        handler()
++        const reader = c.req.raw.body?.getReader()
++        const chunk = reader ? await reader.read() : { value: undefined }
++        return c.text(new TextDecoder().decode(chunk.value))
++      })
++      app.post('/swallow-error', async (c) => {
++        handler()
++        const body = c.req.raw.body
++        if (!body) {
++          return c.text('no body')
++        }
++        const reader = body.getReader()
++        let seen = ''
++        try {
++          for (;;) {
++            const { done, value } = await reader.read()
++            if (done) {
++              break
++            }
++            seen += new TextDecoder().decode(value)
++          }
++        } catch {
++          // intentionally swallow read errors
++        }
++        return c.text(`processed:${seen}`)
++      })
++    })
++
++    it('should reject when handler does not read the body', async () => {
++      const res = await app.request('/no-read', buildOversizedRequestInit())
++      expect(res.status).toBe(413)
++      expect(handler).not.toHaveBeenCalled()
++    })
++
++    it('should reject when handler reads only the first chunk', async () => {
++      const res = await app.request('/partial-read', buildOversizedRequestInit())
++      expect(res.status).toBe(413)
++      expect(handler).not.toHaveBeenCalled()
++    })
++
++    it('should reject when handler swallows body read errors', async () => {
++      const res = await app.request('/swallow-error', buildOversizedRequestInit())
++      expect(res.status).toBe(413)
++      expect(handler).not.toHaveBeenCalled()
++    })
++  })
+ })
+diff --git a/src/middleware/body-limit/index.ts b/src/middleware/body-limit/index.ts
+index e00a7fbf..39fff710 100644
+--- a/src/middleware/body-limit/index.ts
++++ b/src/middleware/body-limit/index.ts
+@@ -15,13 +15,6 @@ type BodyLimitOptions = {
+   onError?: OnError
+ }
+ 
+-class BodyLimitError extends Error {
+-  constructor(message: string) {
+-    super(message)
+-    this.name = 'BodyLimitError'
+-  }
+-}
+-
+ /**
+  * Body Limit Middleware for Hono.
+  *
+@@ -74,52 +67,45 @@ export const bodyLimit = (options: BodyLimitOptions): MiddlewareHandler => {
+     const hasTransferEncoding = c.req.raw.headers.has('transfer-encoding')
+     const hasContentLength = c.req.raw.headers.has('content-length')
+ 
+-    // RFC 7230: If both Transfer-Encoding and Content-Length are present,
+-    // Transfer-Encoding takes precedence and Content-Length should be ignored
+-    if (hasTransferEncoding && hasContentLength) {
+-      // Both headers present - follow RFC 7230 and ignore Content-Length
+-      // This might indicate request smuggling attempt
+-    }
+-
+     if (hasContentLength && !hasTransferEncoding) {
+       // Only Content-Length present - we can trust it
+       const contentLength = parseInt(c.req.raw.headers.get('content-length') || '0', 10)
+       return contentLength > maxSize ? onError(c) : next()
+     }
+ 
+-    // Transfer-Encoding present (chunked) or no length headers
+-
++    // Transfer-Encoding present (chunked) or no length headers.
++    // Per RFC 7230, when both are present Transfer-Encoding takes precedence
++    // and Content-Length is ignored. Read the body up-front so the size check
++    // is final before the handler runs, regardless of how (or whether) the
++    // handler reads the body.
+     let size = 0
++    const chunks: Uint8Array[] = []
+     const rawReader = c.req.raw.body.getReader()
+-    const reader = new ReadableStream({
+-      async start(controller) {
+-        try {
+-          for (;;) {
+-            const { done, value } = await rawReader.read()
+-            if (done) {
+-              break
+-            }
+-            size += value.length
+-            if (size > maxSize) {
+-              controller.error(new BodyLimitError(ERROR_MESSAGE))
+-              break
+-            }
++    for (;;) {
++      const { done, value } = await rawReader.read()
++      if (done) {
++        break
++      }
++      size += value.length
++      if (size > maxSize) {
++        return onError(c)
++      }
++      chunks.push(value)
++    }
+ 
+-            controller.enqueue(value)
++    const requestInit: RequestInit & { duplex: 'half' } = {
++      body: new ReadableStream({
++        start(controller) {
++          for (const chunk of chunks) {
++            controller.enqueue(chunk)
+           }
+-        } finally {
+           controller.close()
+-        }
+-      },
+-    })
+-
+-    const requestInit: RequestInit & { duplex: 'half' } = { body: reader, duplex: 'half' }
++        },
++      }),
++      duplex: 'half',
++    }
+     c.req.raw = new Request(c.req.raw, requestInit as RequestInit)
+ 
+-    await next()
+-
+-    if (c.error instanceof BodyLimitError) {
+-      c.res = await onError(c)
+-    }
++    return next()
+   }
+ }

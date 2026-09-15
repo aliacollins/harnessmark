@@ -1,0 +1,159 @@
+diff --git a/src/helper/ssg/ssg.test.tsx b/src/helper/ssg/ssg.test.tsx
+index b2ea3680..11ea90fb 100644
+--- a/src/helper/ssg/ssg.test.tsx
++++ b/src/helper/ssg/ssg.test.tsx
+@@ -563,6 +563,40 @@ describe('saveContentToFile function', () => {
+     expect(fsMock.writeFile).toHaveBeenCalledWith('static/html.htm', yamlContent) // extensionMap
+     expect(fsMock.writeFile).toHaveBeenCalledWith('static/html.html', yamlContent) // default + extensionMap
+   })
++
++  it('should reject writing files outside outDir via path traversal', async () => {
++    await expect(
++      saveContentToFile(
++        Promise.resolve({
++          routePath: '/../pwned',
++          content: 'owned',
++          mimeType: 'text/html',
++        }),
++        fsMock,
++        './static'
++      )
++    ).rejects.toThrow('Path traversal detected')
++
++    expect(fsMock.mkdir).not.toHaveBeenCalled()
++    expect(fsMock.writeFile).not.toHaveBeenCalled()
++  })
++
++  it('should reject paths that only partially match outDir name', async () => {
++    await expect(
++      saveContentToFile(
++        Promise.resolve({
++          routePath: '/../static-evil/pwned',
++          content: 'owned',
++          mimeType: 'text/html',
++        }),
++        fsMock,
++        './static'
++      )
++    ).rejects.toThrow('Path traversal detected')
++
++    expect(fsMock.mkdir).not.toHaveBeenCalled()
++    expect(fsMock.writeFile).not.toHaveBeenCalled()
++  })
+ })
+ 
+ describe('Dynamic route handling', () => {
+diff --git a/src/helper/ssg/ssg.ts b/src/helper/ssg/ssg.ts
+index a1de2c0e..3794e46c 100644
+--- a/src/helper/ssg/ssg.ts
++++ b/src/helper/ssg/ssg.ts
+@@ -6,7 +6,13 @@ import { getExtension } from '../../utils/mime'
+ import type { AddedSSGDataRequest, SSGParams } from './middleware'
+ import { SSG_CONTEXT, X_HONO_DISABLE_SSG_HEADER_KEY } from './middleware'
+ import { defaultPlugin } from './plugins'
+-import { dirname, filterStaticGenerateRoutes, isDynamicRoute, joinPaths } from './utils'
++import {
++  dirname,
++  ensureWithinOutDir,
++  filterStaticGenerateRoutes,
++  isDynamicRoute,
++  joinPaths,
++} from './utils'
+ 
+ const DEFAULT_CONCURRENCY = 2 // default concurrency for ssg
+ 
+@@ -49,17 +55,20 @@ const generateFilePath = (
+ ): string => {
+   const extension = determineExtension(mimeType, extensionMap)
+ 
++  let filePath: string
+   if (routePath.endsWith(`.${extension}`)) {
+-    return joinPaths(outDir, routePath)
++    filePath = joinPaths(outDir, routePath)
++  } else if (routePath === '/') {
++    filePath = joinPaths(outDir, `index.${extension}`)
++  } else if (routePath.endsWith('/')) {
++    filePath = joinPaths(outDir, routePath, `index.${extension}`)
++  } else {
++    filePath = joinPaths(outDir, `${routePath}.${extension}`)
+   }
+ 
+-  if (routePath === '/') {
+-    return joinPaths(outDir, `index.${extension}`)
+-  }
+-  if (routePath.endsWith('/')) {
+-    return joinPaths(outDir, routePath, `index.${extension}`)
+-  }
+-  return joinPaths(outDir, `${routePath}.${extension}`)
++  ensureWithinOutDir(outDir, filePath)
++
++  return filePath
+ }
+ 
+ const parseResponseContent = async (response: Response): Promise<string | ArrayBuffer> => {
+diff --git a/src/helper/ssg/utils.test.ts b/src/helper/ssg/utils.test.ts
+index ed151ce6..60bf6b36 100644
+--- a/src/helper/ssg/utils.test.ts
++++ b/src/helper/ssg/utils.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from 'vitest'
+-import { dirname, joinPaths } from './utils'
++import { dirname, ensureWithinOutDir, joinPaths } from './utils'
+ 
+ describe('joinPath', () => {
+   it('Should joined path is valid.', () => {
+@@ -27,9 +27,34 @@ describe('joinPath', () => {
+     expect(joinPaths('a\\b\\c', 'd\\e')).toBe('a/b/c/d/e')
+   })
+ })
++
+ describe('dirname', () => {
+   it('Should dirname is valid.', () => {
+     expect(dirname('parent/child')).toBe('parent')
+     expect(dirname('windows\\test.txt')).toBe('windows')
+   })
+ })
++
++describe('ensureWithinOutDir', () => {
++  it('Should not throw for paths within outDir', () => {
++    expect(() => ensureWithinOutDir('./static', 'static/index.html')).not.toThrow()
++    expect(() => ensureWithinOutDir('./static', 'static/sub/page.html')).not.toThrow()
++    expect(() => ensureWithinOutDir('/out', '/out/index.html')).not.toThrow()
++    expect(() => ensureWithinOutDir('./static', 'static/a/../b.html')).not.toThrow()
++  })
++
++  it('Should throw for paths outside outDir via traversal', () => {
++    expect(() => ensureWithinOutDir('./static', 'pwned.txt')).toThrow('Path traversal detected')
++    expect(() => ensureWithinOutDir('./static', '../pwned.txt')).toThrow('Path traversal detected')
++    expect(() => ensureWithinOutDir('./out', 'pwned.txt')).toThrow('Path traversal detected')
++    expect(() => ensureWithinOutDir('./static', 'static/../../pwned.txt')).toThrow(
++      'Path traversal detected'
++    )
++  })
++
++  it('Should throw for paths that partially match outDir name', () => {
++    expect(() => ensureWithinOutDir('./static', 'static-evil/pwned.html')).toThrow(
++      'Path traversal detected'
++    )
++  })
++})
+diff --git a/src/helper/ssg/utils.ts b/src/helper/ssg/utils.ts
+index 55a2fb5a..53416300 100644
+--- a/src/helper/ssg/utils.ts
++++ b/src/helper/ssg/utils.ts
+@@ -73,3 +73,15 @@ export const filterStaticGenerateRoutes = <E extends Env>(
+ export const isDynamicRoute = (path: string): boolean => {
+   return path.split('/').some((segment) => segment.startsWith(':') || segment.includes('*'))
+ }
++
++export const ensureWithinOutDir = (outDir: string, filePath: string): void => {
++  const normalizedOutDir = joinPaths('/', outDir)
++  const normalizedFilePath = joinPaths('/', filePath)
++
++  if (
++    normalizedFilePath !== normalizedOutDir &&
++    !normalizedFilePath.startsWith(`${normalizedOutDir}/`)
++  ) {
++    throw new Error(`Path traversal detected: "${filePath}" is outside the output directory`)
++  }
++}

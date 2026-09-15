@@ -1,0 +1,457 @@
+diff --git a/runtime-tests/lambda/index.test.ts b/runtime-tests/lambda/index.test.ts
+index f4f3f836..817cf4ab 100644
+--- a/runtime-tests/lambda/index.test.ts
++++ b/runtime-tests/lambda/index.test.ts
+@@ -10,11 +10,13 @@ import {
+ import type {
+   ALBProxyEvent,
+   APIGatewayProxyEventV2,
++  LatticeProxyEventV2,
+   LambdaEvent,
+ } from '../../src/adapter/aws-lambda/handler'
+ import type {
+   ApiGatewayRequestContext,
+   ApiGatewayRequestContextV2,
++  LatticeRequestContextV2,
+   LambdaContext,
+ } from '../../src/adapter/aws-lambda/types'
+ import { getCookie, setCookie } from '../../src/helper/cookie'
+@@ -61,6 +63,17 @@ const testApiGatewayRequestContextV2 = {
+   customProperty: 'customValue',
+ }
+ 
++const testLatticeRequestContext: LatticeRequestContextV2 = {
++  serviceNetworkArn: 'arn:aws:vpc-lattice:us-east-1:111122223333:servicenetwork/sn-a1b2c3',
++  serviceArn: 'arn:aws:vpc-lattice:us-east-1:111122223333:service/svc-a1b2c3',
++  targetGroupArn: 'arn:aws:vpc-lattice:us-east-1:111122223333:targetgroup/tg-a1b2c3',
++  region: 'us-east-1',
++  timeEpoch: '1759915938150314',
++  identity: {
++    sourceVpcArn: 'arn:aws:ec2:us-east-1:111122223333:vpc/vpc-a1b2c3',
++  },
++}
++
+ describe('AWS Lambda Adapter for Hono', () => {
+   const app = new Hono<{ Bindings: Bindings }>()
+ 
+@@ -194,38 +207,6 @@ describe('AWS Lambda Adapter for Hono', () => {
+     customProperty: 'customValue',
+   }
+ 
+-  const testApiGatewayRequestContextV2 = {
+-    accountId: '123456789012',
+-    apiId: 'urlid',
+-    authentication: null,
+-    authorizer: {
+-      iam: {
+-        accessKey: 'AKIA...',
+-        accountId: '111122223333',
+-        callerId: 'AIDA...',
+-        cognitoIdentity: null,
+-        principalOrgId: null,
+-        userArn: 'arn:aws:iam::111122223333:user/example-user',
+-        userId: 'AIDA...',
+-      },
+-    },
+-    domainName: 'example.com',
+-    domainPrefix: '<url-id>',
+-    http: {
+-      method: 'POST',
+-      path: '/my/path',
+-      protocol: 'HTTP/1.1',
+-      sourceIp: '123.123.123.123',
+-      userAgent: 'agent',
+-    },
+-    requestId: 'id',
+-    routeKey: '$default',
+-    stage: '$default',
+-    time: '12/Mar/2020:19:03:58 +0000',
+-    timeEpoch: 1583348638390,
+-    customProperty: 'customValue',
+-  }
+-
+   const testALBRequestContext = {
+     elb: {
+       targetGroupArn:
+@@ -316,6 +297,26 @@ describe('AWS Lambda Adapter for Hono', () => {
+     expect(response.isBase64Encoded).toBe(false)
+   })
+ 
++  it('Should handle a GET request and return a 200 response (LatticeProxyEvent)', async () => {
++    const event: LatticeProxyEventV2 = {
++      version: '2.0',
++      path: '/?query=1234ABCD',
++      method: 'GET',
++      headers: { 'content-type': ['text/plain'] },
++      queryStringParameters: {},
++      body: null,
++      isBase64Encoded: false,
++      requestContext: testLatticeRequestContext,
++    }
++
++    const response = await handler(event)
++    expect(response.statusCode).toBe(200)
++    expect(response.body).toBe('Hello Lambda!')
++    expect(response.headers['content-type']).toMatch(/^text\/plain/)
++    expect(response.multiValueHeaders).toBeUndefined()
++    expect(response.isBase64Encoded).toBe(false)
++  })
++
+   it('Should handle a GET request and return a 404 response', async () => {
+     const event = {
+       version: '1.0',
+@@ -523,6 +524,27 @@ describe('AWS Lambda Adapter for Hono', () => {
+     ])
+   })
+ 
++  it('Should handle a POST request and return a 200 response with cookies set (LatticeProxyEvent V2)', async () => {
++    const latticeProxyEvent: LatticeProxyEventV2 = {
++      version: '2.0',
++      path: '/cookie',
++      method: 'POST',
++      headers: { 'content-type': ['text/plain'] },
++      queryStringParameters: {},
++      body: null,
++      isBase64Encoded: false,
++      requestContext: testLatticeRequestContext,
++    }
++
++    const latticeResponse = await handler(latticeProxyEvent)
++
++    expect(latticeResponse.statusCode).toBe(200)
++    expect(latticeResponse.headers).toHaveProperty(
++      'set-cookie',
++      [testCookie1.serialized, testCookie2.serialized].join(', ')
++    )
++  })
++
+   describe('headers', () => {
+     describe('single-value headers', () => {
+       it('Should extract single-value headers and return 200 (ALBProxyEvent)', async () => {
+@@ -626,6 +648,26 @@ describe('AWS Lambda Adapter for Hono', () => {
+         const apiGatewayResponseV2 = await handler(apigatewayProxyEvent)
+         expect(apiGatewayResponseV2.statusCode).toBe(200)
+       })
++
++      it('Should extract multi-value headers and return 200 (LatticeProxyEvent)', async () => {
++        const event: LatticeProxyEventV2 = {
++          version: '2.0',
++          path: '/headers',
++          method: 'POST',
++          headers: {
++            host: ['localhost'],
++            foo: ['bar'],
++          },
++          queryStringParameters: {},
++          body: null,
++          isBase64Encoded: false,
++          requestContext: testLatticeRequestContext,
++        }
++
++        const response = await handler(event)
++
++        expect(response.statusCode).toBe(200)
++      })
+     })
+   })
+ 
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index 8b3df863..461ae247 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -1,4 +1,4 @@
+-import type { LambdaEvent } from './handler'
++import type { LambdaEvent, LatticeProxyEventV2 } from './handler'
+ import { getProcessor, isContentEncodingBinary, defaultIsContentTypeBinary } from './handler'
+ 
+ // Base event objects to reduce duplication
+@@ -297,6 +297,52 @@ describe('EventProcessor.createRequest', () => {
+     })
+   })
+ 
++  it('Should return valid Request object from version 2.0 Lattice event', async () => {
++    const event: LatticeProxyEventV2 = {
++      version: '2.0',
++      // query string parameters from the path take precedence over the explicit notation below
++      path: '/my/path?parameter1=value1&parameter1=value2&parameter2=value',
++      method: 'POST',
++      headers: {
++        cookie: ['cookie1=value1; cookie2=value2'],
++        'content-type': ['application/x-www-form-urlencoded'],
++        header1: ['value1'],
++        header2: ['value1', 'value2'],
++        host: ['my-service-a1b2c3.x1y2z3.vpc-lattice-svcs.us-east-1.on.aws'],
++      },
++      queryStringParameters: {
++        parameter1: ['value1', 'value2'],
++        parameter2: ['value'],
++      },
++      body: 'SGVsbG8gZnJvbSBMYW1iZGE=',
++      isBase64Encoded: true,
++      requestContext: {
++        serviceNetworkArn: '',
++        serviceArn: '',
++        targetGroupArn: '',
++        identity: {},
++        region: 'us-east-1',
++        timeEpoch: '1583348638390123',
++      },
++    }
++
++    const processor = getProcessor(event)
++    const request = processor.createRequest(event)
++
++    expect(await request.text()).toEqual('Hello from Lambda')
++    expect(request.method).toEqual('POST')
++    expect(request.url).toEqual(
++      'https://my-service-a1b2c3.x1y2z3.vpc-lattice-svcs.us-east-1.on.aws/my/path?parameter1=value1&parameter1=value2&parameter2=value'
++    )
++    expect(Object.fromEntries(request.headers)).toEqual({
++      'content-type': 'application/x-www-form-urlencoded',
++      cookie: 'cookie1=value1; cookie2=value2',
++      header1: 'value1',
++      header2: 'value1, value2',
++      host: 'my-service-a1b2c3.x1y2z3.vpc-lattice-svcs.us-east-1.on.aws',
++    })
++  })
++
+   describe('non-ASCII header value processing', () => {
+     it('Should encode non-ASCII header values with encodeURIComponent', async () => {
+       const event: LambdaEvent = {
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index dd49d677..ac182c1d 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -7,6 +7,7 @@ import type {
+   ApiGatewayRequestContextV2,
+   Handler,
+   LambdaContext,
++  LatticeRequestContextV2,
+ } from './types'
+ 
+ function sanitizeHeaderValue(value: string): string {
+@@ -19,7 +20,22 @@ function sanitizeHeaderValue(value: string): string {
+   return encodeURIComponent(value)
+ }
+ 
+-export type LambdaEvent = APIGatewayProxyEvent | APIGatewayProxyEventV2 | ALBProxyEvent
++export type LambdaEvent =
++  | APIGatewayProxyEvent
++  | APIGatewayProxyEventV2
++  | ALBProxyEvent
++  | LatticeProxyEventV2
++
++export interface LatticeProxyEventV2 {
++  version: string
++  path: string
++  method: string
++  headers: Record<string, string[] | undefined>
++  queryStringParameters: Record<string, string[] | undefined>
++  body: string | null
++  isBase64Encoded: boolean
++  requestContext: LatticeRequestContextV2
++}
+ 
+ // When calling HTTP API or Lambda directly through function urls
+ export interface APIGatewayProxyEventV2 {
+@@ -99,7 +115,11 @@ export type APIGatewayProxyResult = {
+ 
+ const getRequestContext = (
+   event: LambdaEvent
+-): ApiGatewayRequestContext | ApiGatewayRequestContextV2 | ALBRequestContext => {
++):
++  | ApiGatewayRequestContext
++  | ApiGatewayRequestContextV2
++  | ALBRequestContext
++  | LatticeRequestContextV2 => {
+   return event.requestContext
+ }
+ 
+@@ -258,12 +278,36 @@ export abstract class EventProcessor<E extends LambdaEvent> {
+ 
+   protected abstract setCookiesToResult(result: APIGatewayProxyResult, cookies: string[]): void
+ 
++  protected getHeaderValue(headers: E['headers'], key: string): string | undefined {
++    const value = headers
++      ? Array.isArray(headers[key])
++        ? headers[key][0]
++        : headers[key]
++      : undefined
++
++    return value
++  }
++
++  protected getDomainName(event: E): string | undefined {
++    if (event.requestContext && 'domainName' in event.requestContext) {
++      return event.requestContext.domainName
++    }
++
++    const hostFromHeaders = this.getHeaderValue(event.headers, 'host')
++
++    if (hostFromHeaders) {
++      return hostFromHeaders
++    }
++
++    const multiValueHeaders = 'multiValueHeaders' in event ? event.multiValueHeaders : {}
++    const hostFromMultiValueHeaders = this.getHeaderValue(multiValueHeaders, 'host')
++
++    return hostFromMultiValueHeaders
++  }
++
+   createRequest(event: E): Request {
+     const queryString = this.getQueryString(event)
+-    const domainName =
+-      event.requestContext && 'domainName' in event.requestContext
+-        ? event.requestContext.domainName
+-        : event.headers?.['host'] ?? event.multiValueHeaders?.['host']?.[0]
++    const domainName = this.getDomainName(event)
+     const path = this.getPath(event)
+     const urlPath = `https://${domainName}${path}`
+     const url = queryString ? `${urlPath}?${queryString}` : urlPath
+@@ -304,7 +348,7 @@ export abstract class EventProcessor<E extends LambdaEvent> {
+       body: body,
+       statusCode: res.status,
+       isBase64Encoded,
+-      ...(event.multiValueHeaders
++      ...('multiValueHeaders' in event && event.multiValueHeaders
+         ? {
+             multiValueHeaders: {},
+           }
+@@ -382,16 +426,16 @@ export class EventV2Processor extends EventProcessor<APIGatewayProxyEventV2> {
+ 
+ const v2Processor: EventV2Processor = new EventV2Processor()
+ 
+-export class EventV1Processor extends EventProcessor<Exclude<LambdaEvent, APIGatewayProxyEventV2>> {
+-  protected getPath(event: Exclude<LambdaEvent, APIGatewayProxyEventV2>): string {
++export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
++  protected getPath(event: APIGatewayProxyEvent): string {
+     return event.path
+   }
+ 
+-  protected getMethod(event: Exclude<LambdaEvent, APIGatewayProxyEventV2>): string {
++  protected getMethod(event: APIGatewayProxyEvent): string {
+     return event.httpMethod
+   }
+ 
+-  protected getQueryString(event: Exclude<LambdaEvent, APIGatewayProxyEventV2>): string {
++  protected getQueryString(event: APIGatewayProxyEvent): string {
+     // In the case of gateway Integration either queryStringParameters or multiValueQueryStringParameters can be present not both
+     // API Gateway passes decoded values, so we need to re-encode them to preserve the original URL
+     if (event.multiValueQueryStringParameters) {
+@@ -411,7 +455,7 @@ export class EventV1Processor extends EventProcessor<Exclude<LambdaEvent, APIGat
+ 
+   protected getCookies(
+     // eslint-disable-next-line @typescript-eslint/no-unused-vars
+-    event: Exclude<LambdaEvent, APIGatewayProxyEventV2>,
++    event: APIGatewayProxyEvent,
+     // eslint-disable-next-line @typescript-eslint/no-unused-vars
+     headers: Headers
+   ): void {
+@@ -536,6 +580,54 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+ 
+ const albProcessor: ALBProcessor = new ALBProcessor()
+ 
++export class LatticeV2Processor extends EventProcessor<LatticeProxyEventV2> {
++  protected getPath(event: LatticeProxyEventV2): string {
++    return event.path
++  }
++
++  protected getMethod(event: LatticeProxyEventV2): string {
++    return event.method
++  }
++
++  protected getQueryString(): string {
++    return ''
++  }
++
++  protected getHeaders(event: LatticeProxyEventV2): Headers {
++    const headers = new Headers()
++
++    if (event.headers) {
++      for (const [k, values] of Object.entries(event.headers)) {
++        if (values) {
++          // avoid duplicating already set headers
++          const foundK = headers.get(k)
++          values.forEach((v) => {
++            const sanitizedValue = sanitizeHeaderValue(v)
++            return (
++              (!foundK || !foundK.includes(sanitizedValue)) && headers.append(k, sanitizedValue)
++            )
++          })
++        }
++      }
++    }
++
++    return headers
++  }
++
++  protected getCookies(): void {
++    // nop
++  }
++
++  protected setCookiesToResult(result: APIGatewayProxyResult, cookies: string[]): void {
++    result.headers = {
++      ...result.headers,
++      'set-cookie': cookies.join(', '),
++    }
++  }
++}
++
++const latticeV2Processor: LatticeV2Processor = new LatticeV2Processor()
++
+ export const getProcessor = (event: LambdaEvent): EventProcessor<LambdaEvent> => {
+   if (isProxyEventALB(event)) {
+     return albProcessor
+@@ -543,6 +635,10 @@ export const getProcessor = (event: LambdaEvent): EventProcessor<LambdaEvent> =>
+   if (isProxyEventV2(event)) {
+     return v2Processor
+   }
++  if (isLatticeEventV2(event)) {
++    return latticeV2Processor
++  }
++
+   return v1Processor
+ }
+ 
+@@ -557,6 +653,13 @@ const isProxyEventV2 = (event: LambdaEvent): event is APIGatewayProxyEventV2 =>
+   return Object.hasOwn(event, 'rawPath')
+ }
+ 
++const isLatticeEventV2 = (event: LambdaEvent): event is LatticeProxyEventV2 => {
++  if (event.requestContext) {
++    return Object.hasOwn(event.requestContext, 'serviceArn')
++  }
++  return false
++}
++
+ /**
+  * Check if the given content type is binary.
+  * This is a default function and may be overwritten by the user via `isContentTypeBinary` option in handler().
+diff --git a/src/adapter/aws-lambda/types.ts b/src/adapter/aws-lambda/types.ts
+index 586c77f5..cad49389 100644
+--- a/src/adapter/aws-lambda/types.ts
++++ b/src/adapter/aws-lambda/types.ts
+@@ -142,3 +142,23 @@ export interface ALBRequestContext {
+     targetGroupArn: string
+   }
+ }
++
++export interface LatticeRequestContextV2 {
++  serviceNetworkArn: string
++  serviceArn: string
++  targetGroupArn: string
++  region: string
++  timeEpoch: string
++  identity: {
++    sourceVpcArn?: string
++    type?: string
++    principal?: string
++    principalOrgID?: string
++    sessionName?: string
++    x509IssuerOu?: string
++    x509SanDns?: string
++    x509SanNameCn?: string
++    x509SanUri?: string
++    x509SubjectCn?: string
++  }
++}

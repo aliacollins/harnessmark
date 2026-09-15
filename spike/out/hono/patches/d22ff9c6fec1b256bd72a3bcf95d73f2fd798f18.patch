@@ -1,0 +1,31 @@
+diff --git a/src/utils/ipaddr.test.ts b/src/utils/ipaddr.test.ts
+index e5c55919..c6372d69 100644
+--- a/src/utils/ipaddr.test.ts
++++ b/src/utils/ipaddr.test.ts
+@@ -28,6 +28,10 @@ describe('expandIPv6', () => {
+     expect(expandIPv6('2001:0:0:db8::1')).toBe('2001:0000:0000:0db8:0000:0000:0000:0001')
+     expect(expandIPv6('::ffff:127.0.0.1')).toBe('0000:0000:0000:0000:0000:ffff:7f00:0001')
+   })
++
++  it('Should expand the unspecified address "::" to eight zero groups', () => {
++    expect(expandIPv6('::')).toBe('0000:0000:0000:0000:0000:0000:0000:0000')
++  })
+ })
+ describe('distinctRemoteAddr', () => {
+   it('Should result be valid', () => {
+diff --git a/src/utils/ipaddr.ts b/src/utils/ipaddr.ts
+index 6ff879f1..aea95dcd 100644
+--- a/src/utils/ipaddr.ts
++++ b/src/utils/ipaddr.ts
+@@ -26,7 +26,10 @@ export const expandIPv6 = (ipV6: string): string => {
+     if (node !== '') {
+       sections[i] = node.padStart(4, '0')
+     } else {
+-      sections[i + 1] === '' && sections.splice(i + 1, 1)
++      // Keep a single empty slot for `::` zero expansion.
++      while (sections[i + 1] === '') {
++        sections.splice(i + 1, 1)
++      }
+       sections[i] = new Array(8 - sections.length + 1).fill('0000').join(':')
+     }
+   }

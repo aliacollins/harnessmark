@@ -1,0 +1,47 @@
+diff --git a/src/client/client.test.ts b/src/client/client.test.ts
+index 562b56a3..defedcde 100644
+--- a/src/client/client.test.ts
++++ b/src/client/client.test.ts
+@@ -274,6 +274,7 @@ describe('Basic - query, queries, form, path params, header and cookie', () => {
+       validator('cookie', () => {
+         return {
+           hello: 'world',
++          goodbye: 'moon',
+         }
+       }),
+       (c) => {
+@@ -312,9 +313,7 @@ describe('Basic - query, queries, form, path params, header and cookie', () => {
+       return HttpResponse.json({ 'x-message-id': message })
+     }),
+     http.get('http://localhost/api/cookie', async ({ request }) => {
+-      const obj = parse(request.headers.get('cookie') || '')
+-      const value = obj['hello']
+-      return HttpResponse.json({ hello: value })
++      return HttpResponse.json(parse(request.headers.get('cookie') || ''))
+     })
+   )
+ 
+@@ -373,6 +372,7 @@ describe('Basic - query, queries, form, path params, header and cookie', () => {
+   it('Should get 200 response - cookie', async () => {
+     const cookie = {
+       hello: 'world',
++      goodbye: 'moon',
+     }
+     const res = await client.cookie.$get({
+       cookie,
+diff --git a/src/client/client.ts b/src/client/client.ts
+index a2a996d7..0a614483 100644
+--- a/src/client/client.ts
++++ b/src/client/client.ts
+@@ -98,9 +98,9 @@ class ClientRequestImpl {
+     if (args?.cookie) {
+       const cookies: string[] = []
+       for (const [key, value] of Object.entries(args.cookie)) {
+-        cookies.push(serialize(key, value, { path: '/' }))
++        cookies.push(serialize(key, value))
+       }
+-      headerValues['Cookie'] = cookies.join(',')
++      headerValues['Cookie'] = cookies.join('; ')
+     }
+ 
+     if (this.cType) {

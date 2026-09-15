@@ -1,0 +1,52 @@
+diff --git a/src/utils/cookie.test.ts b/src/utils/cookie.test.ts
+index 510b6356..27e20ea4 100644
+--- a/src/utils/cookie.test.ts
++++ b/src/utils/cookie.test.ts
+@@ -270,6 +270,30 @@ describe('Set cookie', () => {
+     }).toThrowError('Partitioned Cookie must have Secure attributes')
+   })
+ 
++  it('Should throw Error cookie with domain or path containing ";", "\\r", or "\\n"', () => {
++    // domain
++    expect(() => {
++      serialize('great_cookie', 'banana', { domain: 'example.com;evil' })
++    }).toThrowError('domain must not contain ";", "\\r", or "\\n"')
++    expect(() => {
++      serialize('great_cookie', 'banana', { domain: 'example.com\revil' })
++    }).toThrowError('domain must not contain ";", "\\r", or "\\n"')
++    expect(() => {
++      serialize('great_cookie', 'banana', { domain: 'example.com\nevil' })
++    }).toThrowError('domain must not contain ";", "\\r", or "\\n"')
++
++    // path
++    expect(() => {
++      serialize('great_cookie', 'banana', { path: '/;evil' })
++    }).toThrowError('path must not contain ";", "\\r", or "\\n"')
++    expect(() => {
++      serialize('great_cookie', 'banana', { path: '/\revil' })
++    }).toThrowError('path must not contain ";", "\\r", or "\\n"')
++    expect(() => {
++      serialize('great_cookie', 'banana', { path: '/\nevil' })
++    }).toThrowError('path must not contain ";", "\\r", or "\\n"')
++  })
++
+   it('Should serialize cookie with lowercase priority values', () => {
+     const lowSerialized = serialize('test_cookie', 'value', {
+       priority: 'low',
+diff --git a/src/utils/cookie.ts b/src/utils/cookie.ts
+index 0d0040f4..c72af768 100644
+--- a/src/utils/cookie.ts
++++ b/src/utils/cookie.ts
+@@ -161,6 +161,12 @@ const _serialize = (name: string, value: string, opt: CookieOptions = {}): strin
+     }
+   }
+ 
++  for (const key of ['domain', 'path'] as (keyof CookieOptions)[]) {
++    if (opt[key] && /[;\r\n]/.test(opt[key] as string)) {
++      throw new Error(`${key} must not contain ";", "\\r", or "\\n"`)
++    }
++  }
++
+   if (opt && typeof opt.maxAge === 'number' && opt.maxAge >= 0) {
+     if (opt.maxAge > 34560000) {
+       // https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis-22#section-5.6.2

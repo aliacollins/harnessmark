@@ -1,0 +1,50 @@
+diff --git a/src/request.test.ts b/src/request.test.ts
+index 09b94db4..e32f0f87 100644
+--- a/src/request.test.ts
++++ b/src/request.test.ts
+@@ -621,6 +621,24 @@ describe('cloneRawRequest', () => {
+     expect((await clonedReq.formData()).get('foo')).toBe('bar')
+   })
+ 
++  test('clones request when external code populated bodyCache.json', async () => {
++    const req = new HonoRequest(
++      new Request('http://localhost', {
++        method: 'POST',
++        headers: {
++          'Content-Type': 'application/json',
++        },
++        body: JSON.stringify({ foo: 'bar' }),
++      })
++    )
++    await req.raw.json()
++    req.bodyCache.json = Promise.resolve({ foo: 'bar' })
++
++    const clonedReq = await cloneRawRequest(req)
++
++    expect(await clonedReq.json()).toEqual({ foo: 'bar' })
++  })
++
+   test('clones GET request without body', async () => {
+     const req = new HonoRequest(
+       new Request('http://localhost', {
+diff --git a/src/request.ts b/src/request.ts
+index 5a225714..45d48801 100644
+--- a/src/request.ts
++++ b/src/request.ts
+@@ -482,11 +482,12 @@ export const cloneRawRequest = async (req: HonoRequest): Promise<Request> => {
+     })
+   }
+ 
+-  const body = await req[cacheKey]()
++  let body: BodyInit = await req[cacheKey]()
+   const headers = req.header()
+-  if (body instanceof FormData) {
+-    // The FormData is re-serialized, so the original content headers no longer
+-    // describe the body. Let the runtime generate them for the new representation.
++  if (cacheKey === 'json') {
++    body = JSON.stringify(body)
++    delete headers['content-length']
++  } else if (body instanceof FormData) {
+     delete headers['content-type']
+     delete headers['content-length']
+   }

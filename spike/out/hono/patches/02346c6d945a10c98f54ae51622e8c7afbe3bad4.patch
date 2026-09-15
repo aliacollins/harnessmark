@@ -1,0 +1,117 @@
+diff --git a/src/middleware/language/index.test.ts b/src/middleware/language/index.test.ts
+index dc35d1b6..8bd7d2cb 100644
+--- a/src/middleware/language/index.test.ts
++++ b/src/middleware/language/index.test.ts
+@@ -77,6 +77,82 @@ describe('languageDetector', () => {
+       expect(await res.text()).toBe('fr')
+     })
+ 
++    it('should fallback to language code when locale code is not in supportedLanguages', async () => {
++      const app = createTestApp({
++        supportedLanguages: ['en', 'ja'],
++        fallbackLanguage: 'en',
++        order: ['header'],
++      })
++
++      const res = await app.request('/', {
++        headers: {
++          'accept-language': 'ja-JP',
++        },
++      })
++      expect(await res.text()).toBe('ja')
++    })
++
++    it('should match after multiple truncations', async () => {
++      const app = createTestApp({
++        supportedLanguages: ['zh-Hant', 'en'],
++        fallbackLanguage: 'en',
++        order: ['header'],
++      })
++
++      const res = await app.request('/', {
++        headers: {
++          'accept-language': 'zh-Hant-CN',
++        },
++      })
++      expect(await res.text()).toBe('zh-Hant')
++    })
++
++    it('should fallback when truncation does not match any supported language', async () => {
++      const app = createTestApp({
++        supportedLanguages: ['en', 'ja'],
++        fallbackLanguage: 'en',
++        order: ['header'],
++      })
++
++      const res = await app.request('/', {
++        headers: {
++          'accept-language': 'ko-KR',
++        },
++      })
++      expect(await res.text()).toBe('en')
++    })
++
++    it('should prefer exact match over truncated match', async () => {
++      const app = createTestApp({
++        supportedLanguages: ['fr', 'fr-CA'],
++        fallbackLanguage: 'fr',
++        order: ['header'],
++      })
++
++      const res = await app.request('/', {
++        headers: {
++          'accept-language': 'fr-CA',
++        },
++      })
++      expect(await res.text()).toBe('fr-CA')
++    })
++
++    it('should handle case-insensitive truncation matching', async () => {
++      const app = createTestApp({
++        supportedLanguages: ['en', 'ja'],
++        fallbackLanguage: 'en',
++        order: ['header'],
++        ignoreCase: true,
++      })
++
++      const res = await app.request('/', {
++        headers: {
++          'accept-language': 'JA-JP',
++        },
++      })
++      expect(await res.text()).toBe('ja')
++    })
++
+     it('should handle malformed Accept-Language headers', async () => {
+       const app = createTestApp({
+         supportedLanguages: ['en', 'fr'],
+diff --git a/src/middleware/language/language.ts b/src/middleware/language/language.ts
+index d959b825..df3b0a76 100644
+--- a/src/middleware/language/language.ts
++++ b/src/middleware/language/language.ts
+@@ -100,8 +100,23 @@ export const normalizeLanguage = (
+       options.ignoreCase ? l.toLowerCase() : l
+     )
+ 
+-    const matchedLang = compSupported.find((l) => l === compLang)
+-    return matchedLang ? options.supportedLanguages[compSupported.indexOf(matchedLang)] : undefined
++    // Exact match
++    const exactIndex = compSupported.indexOf(compLang)
++    if (exactIndex !== -1) {
++      return options.supportedLanguages[exactIndex]
++    }
++
++    // Progressive truncation (RFC 4647 Lookup)
++    const parts = compLang.split('-')
++    for (let i = parts.length - 1; i > 0; i--) {
++      const candidate = parts.slice(0, i).join('-')
++      const prefixIndex = compSupported.indexOf(candidate)
++      if (prefixIndex !== -1) {
++        return options.supportedLanguages[prefixIndex]
++      }
++    }
++
++    return undefined
+   } catch {
+     return undefined
+   }

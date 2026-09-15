@@ -1,0 +1,237 @@
+diff --git a/runtime-tests/lambda-edge/index.test.ts b/runtime-tests/lambda-edge/index.test.ts
+index a60e3eed..9cd68e8b 100644
+--- a/runtime-tests/lambda-edge/index.test.ts
++++ b/runtime-tests/lambda-edge/index.test.ts
+@@ -123,7 +123,7 @@ describe('Lambda@Edge Adapter for Hono', () => {
+       ],
+     }
+     const response = await handler(event)
+-    expect(response.status).toBe('200')
++    expect(response).toMatchObject({ status: '200' })
+     expect(response.body).toBe('Hello Lambda!')
+     if (response.headers && response.headers['content-type']) {
+       expect(response.headers['content-type'][0].value).toMatch(/^text\/plain/)
+@@ -198,7 +198,7 @@ describe('Lambda@Edge Adapter for Hono', () => {
+       ],
+     }
+     const response = await handler(event)
+-    expect(response.status).toBe('200')
++    expect(response).toMatchObject({ status: '200' })
+     expect(response.body).toBe('Hello Lambda!')
+     if (response.headers && response.headers['content-type']) {
+       expect(response.headers['content-type'][0].value).toMatch(/^text\/plain/)
+@@ -321,7 +321,7 @@ describe('Lambda@Edge Adapter for Hono', () => {
+       ],
+     }
+     const response = await handler(event)
+-    expect(response.status).toBe('200')
++    expect(response).toMatchObject({ status: '200' })
+     expect(response.body).toBe('Hello Lambda!')
+     if (response.headers && response.headers['content-type']) {
+       expect(response.headers['content-type'][0].value).toMatch(/^text\/plain/)
+@@ -462,7 +462,7 @@ describe('Lambda@Edge Adapter for Hono', () => {
+       ],
+     }
+     const response = await handler(event)
+-    expect(response.status).toBe('200')
++    expect(response).toMatchObject({ status: '200' })
+     expect(response.body).toBe('Hello Lambda!')
+     if (response.headers && response.headers['content-type']) {
+       expect(response.headers['content-type'][0].value).toMatch(/^text\/plain/)
+@@ -503,7 +503,7 @@ describe('Lambda@Edge Adapter for Hono', () => {
+ 
+     const response = await handler(event)
+ 
+-    expect(response.status).toBe('200')
++    expect(response).toMatchObject({ status: '200' })
+     expect(response.body).toBe('RmFrZSBJbWFnZQ==') // base64 encoded fake image
+     if (response.headers && response.headers['content-type']) {
+       expect(response.headers['content-type'][0].value).toMatch(/^image\/png/)
+@@ -544,7 +544,7 @@ describe('Lambda@Edge Adapter for Hono', () => {
+ 
+     const response = await handler(event)
+ 
+-    expect(response.status).toBe('404')
++    expect(response).toMatchObject({ status: '404' })
+   })
+ 
+   it('Should handle a POST request and return a 200 response', async () => {
+@@ -594,7 +594,7 @@ describe('Lambda@Edge Adapter for Hono', () => {
+ 
+     const response = await handler(event)
+ 
+-    expect(response.status).toBe('200')
++    expect(response).toMatchObject({ status: '200' })
+     expect(response.body).toBe('Good Morning Lambda!')
+   })
+ 
+@@ -643,7 +643,7 @@ describe('Lambda@Edge Adapter for Hono', () => {
+     }
+ 
+     const response = await handler(event)
+-    expect(response.status).toBe('200')
++    expect(response).toMatchObject({ status: '200' })
+     expect(response.body).toBe('3 bytes')
+   })
+ 
+@@ -685,7 +685,7 @@ describe('Lambda@Edge Adapter for Hono', () => {
+ 
+     const response = await handler(event)
+ 
+-    expect(response.status).toBe('401')
++    expect(response).toMatchObject({ status: '401' })
+   })
+ 
+   it('Should handle a request and return a 401 response with Basic auth', async () => {
+@@ -726,7 +726,7 @@ describe('Lambda@Edge Adapter for Hono', () => {
+ 
+     const response = await handler(event)
+ 
+-    expect(response.status).toBe('401')
++    expect(response).toMatchObject({ status: '401' })
+   })
+ 
+   it('Should call a callback to continue processing the request', async () => {
+@@ -1129,6 +1129,6 @@ describe('Lambda@Edge Adapter for Hono', () => {
+     const response = await handler(event)
+ 
+     expect(response.body).toBe('RmFrZSBJbWFnZQ==') // base64 encoded "Fake Image"
+-    expect(response.bodyEncoding).toBe('base64')
++    expect(response).toMatchObject({ bodyEncoding: 'base64' })
+   })
+ })
+diff --git a/src/adapter/lambda-edge/handler.test.ts b/src/adapter/lambda-edge/handler.test.ts
+index df93033d..d249bad3 100644
+--- a/src/adapter/lambda-edge/handler.test.ts
++++ b/src/adapter/lambda-edge/handler.test.ts
+@@ -3,7 +3,7 @@ import { setCookie } from '../../helper/cookie'
+ import { Hono } from '../../hono'
+ import { bodyLimit } from '../../middleware/body-limit'
+ import { encodeBase64 } from '../../utils/encode'
+-import type { Callback, CloudFrontEdgeEvent } from './handler'
++import type { Callback, CloudFrontEdgeEvent, CloudFrontRequest } from './handler'
+ import { createBody, handle, isContentTypeBinary } from './handler'
+ 
+ describe('isContentTypeBinary', () => {
+@@ -220,6 +220,84 @@ describe('handle', () => {
+     }
+ 
+     const res = await handler(event)
+-    expect(res.status).toBe('413')
++    expect(res).toMatchObject({ status: '413' })
++  })
++
++  it('Should resolve with the request passed to the callback for origin forwarding', async () => {
++    type Env = { Bindings: { callback: Callback; request: CloudFrontRequest } }
++    const app = new Hono<Env>()
++    const callback = vi.fn()
++
++    app.get('*', async (c, next) => {
++      await next()
++      c.env.callback(null, c.env.request)
++    })
++
++    const handler = handle(app)
++    const result = await handler(cloudFrontEdgeEvent, undefined, callback)
++
++    expect(result).toBe(cloudFrontEdgeEvent.Records[0].cf.request)
++    expect(callback).toHaveBeenCalledWith(null, cloudFrontEdgeEvent.Records[0].cf.request)
++  })
++
++  it('Should resolve with the result passed to the callback over the app response', async () => {
++    type Env = { Bindings: { callback: Callback } }
++    const app = new Hono<Env>()
++    const customResult = {
++      status: '302',
++      headers: {
++        location: [{ key: 'location', value: 'https://example.com' }],
++      },
++    }
++
++    app.get('/test-path', (c) => {
++      c.env.callback(null, customResult)
++      return c.text('ok')
++    })
++
++    const handler = handle(app)
++    const result = await handler(cloudFrontEdgeEvent)
++
++    expect(result).toBe(customResult)
++  })
++
++  it('Should only honor the first callback invocation', async () => {
++    type Env = { Bindings: { callback: Callback; request: CloudFrontRequest } }
++    const app = new Hono<Env>()
++
++    app.get('/test-path', (c) => {
++      c.env.callback(null, c.env.request)
++      c.env.callback(null, { status: '500' })
++      return c.text('ok')
++    })
++
++    const handler = handle(app)
++    const result = await handler(cloudFrontEdgeEvent)
++
++    expect(result).toBe(cloudFrontEdgeEvent.Records[0].cf.request)
++  })
++
++  it('Should reject when the callback is called with an error', async () => {
++    type Env = { Bindings: { callback: Callback } }
++    const app = new Hono<Env>()
++    const error = new Error('edge failure')
++
++    app.get('/test-path', (c) => {
++      c.env.callback(error)
++      return c.text('ok')
++    })
++
++    const handler = handle(app)
++
++    await expect(handler(cloudFrontEdgeEvent)).rejects.toThrow('edge failure')
++  })
++
++  it('Should resolve with the app response when the callback is not used', async () => {
++    const app = new Hono()
++    app.get('/test-path', (c) => c.text('normal'))
++    const handler = handle(app)
++
++    const res = await handler(cloudFrontEdgeEvent)
++    expect(res).toMatchObject({ status: '200', body: 'normal' })
+   })
+ })
+diff --git a/src/adapter/lambda-edge/handler.ts b/src/adapter/lambda-edge/handler.ts
+index 1b47dabb..8f3614c0 100644
+--- a/src/adapter/lambda-edge/handler.ts
++++ b/src/adapter/lambda-edge/handler.ts
+@@ -120,20 +120,29 @@ export const handle = (
+   event: CloudFrontEdgeEvent,
+   context?: CloudFrontContext,
+   callback?: Callback
+-) => Promise<CloudFrontResult>) => {
++) => Promise<CloudFrontResult | CloudFrontRequest>) => {
+   return async (event, ...args: [context?: CloudFrontContext, callback?: Callback]) => {
+     const [context, callback] = args
++    let callbackError: Error | null = null
++    let callbackResult: CloudFrontResult | CloudFrontRequest | undefined
+     const res = await app.fetch(createRequest(event), {
+       event,
+       context,
+       callback: (err: Error | null, result?: CloudFrontResult | CloudFrontRequest) => {
++        if (!callbackError && !callbackResult) {
++          callbackError = err
++          callbackResult = result
++        }
+         callback?.(err, result)
+       },
+       config: event.Records[0].cf.config,
+       request: event.Records[0].cf.request,
+       response: event.Records[0].cf.response,
+     })
+-    return createResult(res)
++    if (callbackError) {
++      throw callbackError
++    }
++    return callbackResult ?? createResult(res)
+   }
+ }
+ 

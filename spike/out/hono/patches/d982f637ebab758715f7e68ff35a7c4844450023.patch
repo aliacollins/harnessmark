@@ -1,0 +1,32 @@
+diff --git a/src/utils/url.test.ts b/src/utils/url.test.ts
+index 7274d5db..2fcd70d7 100644
+--- a/src/utils/url.test.ts
++++ b/src/utils/url.test.ts
+@@ -253,6 +253,7 @@ describe('url', () => {
+         '/api/:version/animal',
+         '/api/:version/animal/:type',
+       ])
++      expect(checkOptionalParameter('/api/:id{[0-9]?}?')).toEqual(['/api', '/api/:id{[0-9]?}'])
+     })
+   })
+ 
+diff --git a/src/utils/url.ts b/src/utils/url.ts
+index ea92ff93..12493648 100644
+--- a/src/utils/url.ts
++++ b/src/utils/url.ts
+@@ -187,13 +187,13 @@ export const checkOptionalParameter = (path: string): string[] | null => {
+     if (segment !== '' && !/\:/.test(segment)) {
+       basePath += '/' + segment
+     } else if (/\:/.test(segment)) {
+-      if (/\?/.test(segment)) {
++      if (segment.charCodeAt(segment.length - 1) === 63) {
+         if (results.length === 0 && basePath === '') {
+           results.push('/')
+         } else {
+           results.push(basePath)
+         }
+-        const optionalSegment = segment.replace('?', '')
++        const optionalSegment = segment.slice(0, -1)
+         basePath += '/' + optionalSegment
+         results.push(basePath)
+       } else {

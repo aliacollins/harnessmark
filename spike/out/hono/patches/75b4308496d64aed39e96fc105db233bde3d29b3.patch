@@ -1,0 +1,172 @@
+diff --git a/src/jsx/dom/index.test.tsx b/src/jsx/dom/index.test.tsx
+index ca3b8655..23ef5d5c 100644
+--- a/src/jsx/dom/index.test.tsx
++++ b/src/jsx/dom/index.test.tsx
+@@ -904,7 +904,7 @@ describe('DOM', () => {
+       it('assign undefined', async () => {
+         let setValue: (value: string | undefined) => void = () => {}
+         const App = () => {
+-          const [value, _setValue] = useState<string | undefined>('a')
++          const [value, _setValue] = useState<string | undefined>('b')
+           setValue = _setValue
+           return (
+             <select value={value}>
+@@ -922,6 +922,96 @@ describe('DOM', () => {
+         await Promise.resolve()
+         const select = root.querySelector('select') as HTMLSelectElement
+         expect(select.value).toBe('a') // select the first option
++        expect(select.selectedIndex).toBe(0)
++      })
++
++      it('apply value after options are added', async () => {
++        let setOptions: (options: string[]) => void = () => {}
++        const App = () => {
++          const [options, _setOptions] = useState<string[]>([])
++          setOptions = _setOptions
++          return (
++            <select value='option2'>
++              {options.map((opt) => (
++                <option key={opt} value={opt}>
++                  {opt}
++                </option>
++              ))}
++            </select>
++          )
++        }
++        render(<App />, root)
++        setOptions(['option1', 'option2', 'option3'])
++        await Promise.resolve()
++        const select = root.querySelector('select') as HTMLSelectElement
++        expect(select.value).toBe('option2')
++        expect(select.selectedIndex).toBe(1)
++        expect(select.options[1].selected).toBe(true)
++      })
++
++      it('select the first option when undefined after options are added', async () => {
++        let setOptions: (options: string[]) => void = () => {}
++        const App = () => {
++          const [options, _setOptions] = useState<string[]>([])
++          setOptions = _setOptions
++          return (
++            <select value={undefined}>
++              {options.map((opt) => (
++                <option key={opt} value={opt}>
++                  {opt}
++                </option>
++              ))}
++            </select>
++          )
++        }
++        render(<App />, root)
++        setOptions(['option1', 'option2', 'option3'])
++        await Promise.resolve()
++        const select = root.querySelector('select') as HTMLSelectElement
++        expect(select.value).toBe('option1')
++        expect(select.selectedIndex).toBe(0)
++        expect(select.options[0].selected).toBe(true)
++      })
++
++      it('do not select the first option for invalid multiple value', () => {
++        const App = () => {
++          return (
++            <select multiple value='z'>
++              <option value='a'>A</option>
++              <option value='b'>B</option>
++              <option value='c'>C</option>
++            </select>
++          )
++        }
++        render(<App />, root)
++        const select = root.querySelector('select') as HTMLSelectElement
++        expect(select.value).toBe('')
++        expect(select.selectedIndex).toBe(-1)
++        expect([...select.options].every((option) => !option.selected)).toBe(true)
++      })
++
++      it('keep invalid multiple value unselected after options are added', async () => {
++        let setOptions: (options: string[]) => void = () => {}
++        const App = () => {
++          const [options, _setOptions] = useState<string[]>([])
++          setOptions = _setOptions
++          return (
++            <select multiple value='z'>
++              {options.map((opt) => (
++                <option key={opt} value={opt}>
++                  {opt}
++                </option>
++              ))}
++            </select>
++          )
++        }
++        render(<App />, root)
++        setOptions(['a', 'b', 'c'])
++        await Promise.resolve()
++        const select = root.querySelector('select') as HTMLSelectElement
++        expect(select.value).toBe('')
++        expect(select.selectedIndex).toBe(-1)
++        expect([...select.options].every((option) => !option.selected)).toBe(true)
+       })
+     })
+ 
+diff --git a/src/jsx/dom/render.ts b/src/jsx/dom/render.ts
+index 5d2eae62..6a8c7bad 100644
+--- a/src/jsx/dom/render.ts
++++ b/src/jsx/dom/render.ts
+@@ -141,6 +141,20 @@ const toAttributeName = (element: SupportedElement, key: string): string =>
+     ? key.replace(/([A-Z])/g, '-$1').toLowerCase()
+     : key
+ 
++const normalizeFormValue = (value: Props['value']) =>
++  value === null || value === undefined || value === false ? null : value
++
++const applySelectValue = (select: HTMLSelectElement, props: Props): void => {
++  if (!('value' in props)) {
++    return
++  }
++
++  select.value = normalizeFormValue(props['value'])
++  if (!select.multiple && select.selectedIndex === -1) {
++    select.selectedIndex = 0
++  }
++}
++
+ const applyProps = (
+   container: SupportedElement,
+   attributes: Props,
+@@ -188,18 +202,15 @@ const applyProps = (
+       } else {
+         if (key === 'value') {
+           const nodeName = container.nodeName
+-          if (nodeName === 'INPUT' || nodeName === 'TEXTAREA' || nodeName === 'SELECT') {
+-            ;(container as unknown as HTMLInputElement).value =
+-              value === null || value === undefined || value === false ? null : value
++          if (nodeName === 'SELECT') {
++            // Deferred to applySelectValue() after children are rendered
++            continue
++          } else if (nodeName === 'INPUT' || nodeName === 'TEXTAREA') {
++            ;(container as unknown as HTMLInputElement).value = normalizeFormValue(value)
+ 
+             if (nodeName === 'TEXTAREA') {
+               container.textContent = value
+               continue
+-            } else if (nodeName === 'SELECT') {
+-              if ((container as unknown as HTMLSelectElement).selectedIndex === -1) {
+-                ;(container as unknown as HTMLSelectElement).selectedIndex = 0
+-              }
+-              continue
+             }
+           }
+         } else if (
+@@ -404,8 +415,12 @@ const applyNodeObject = (node: NodeObject, container: Container, isNew: boolean)
+         el = child.e ||= child.n
+           ? (document.createElementNS(child.n, child.tag as string) as SVGElement | MathMLElement)
+           : document.createElement(child.tag as string)
++
+         applyProps(el as HTMLElement, child.props, child.pP)
+         applyNodeObject(child, el as HTMLElement, isNewLocal)
++        if (child.tag === 'select') {
++          applySelectValue(el as HTMLSelectElement, child.props)
++        }
+       }
+     }
+     if (child.tag === HONO_PORTAL_ELEMENT) {

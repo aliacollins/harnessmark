@@ -1,0 +1,317 @@
+diff --git a/src/helper/ssg/ssg.test.tsx b/src/helper/ssg/ssg.test.tsx
+index 302a0bdb..f012dbc9 100644
+--- a/src/helper/ssg/ssg.test.tsx
++++ b/src/helper/ssg/ssg.test.tsx
+@@ -162,6 +162,128 @@ describe('toSSG function', () => {
+     expect(result.files).toStrictEqual([])
+   })
+ 
++  it('Should reject consecutive parent segments from ssgParams', async () => {
++    const app = new Hono()
++    app.get('/:id', ssgParams([{ id: 'a/b/../../../pwned' }]), (c) =>
++      c.text('attacker-controlled-body')
++    )
++    const fsMock: FileSystemModule = {
++      writeFile: vi.fn(() => Promise.resolve()),
++      mkdir: vi.fn(() => Promise.resolve()),
++    }
++
++    const result = await toSSG(app, fsMock, { dir: './static' })
++
++    expect(result.success).toBe(false)
++    expect(result.files).toStrictEqual([])
++    expect(result.error?.message).toContain('Path traversal detected')
++    expect(fsMock.mkdir).not.toHaveBeenCalled()
++    expect(fsMock.writeFile).not.toHaveBeenCalled()
++  })
++
++  it('Should generate files when dir is the current directory', async () => {
++    const app = new Hono()
++    app.get('/', (c) => c.html('Hello, World!'))
++    app.get('/about/some', (c) => c.text('About Page 2tier'))
++    const fsMock: FileSystemModule = {
++      writeFile: vi.fn(() => Promise.resolve()),
++      mkdir: vi.fn(() => Promise.resolve()),
++    }
++
++    const result = await toSSG(app, fsMock, { dir: '.' })
++
++    expect(result.success).toBe(true)
++    expect(result.files).toHaveLength(2)
++    expect(fsMock.writeFile).toHaveBeenCalledWith('index.html', expect.any(String))
++    expect(fsMock.writeFile).toHaveBeenCalledWith('about/some.txt', expect.any(String))
++    expect(fsMock.mkdir).not.toHaveBeenCalledWith('', expect.anything())
++  })
++
++  it('Should reject absolute Windows paths when dir is the current directory', async () => {
++    const app = new Hono()
++    app.get(
++      '/:drive/:dir/:file',
++      ssgParams([{ drive: 'C:', dir: 'Windows', file: 'pwned' }]),
++      (c) => c.text('pwned')
++    )
++    const fsMock: FileSystemModule = {
++      writeFile: vi.fn(() => Promise.resolve()),
++      mkdir: vi.fn(() => Promise.resolve()),
++    }
++
++    const result = await toSSG(app, fsMock, { dir: '.' })
++
++    expect(result.success).toBe(false)
++    expect(result.error?.message).toContain('Path traversal detected')
++    expect(fsMock.mkdir).not.toHaveBeenCalled()
++    expect(fsMock.writeFile).not.toHaveBeenCalled()
++  })
++
++  it('Should reject drive-relative Windows paths when dir is the current directory', async () => {
++    const app = new Hono()
++    app.get('/:id', ssgParams([{ id: 'C:pwned' }]), (c) => c.text('pwned'))
++    const fsMock: FileSystemModule = {
++      writeFile: vi.fn(() => Promise.resolve()),
++      mkdir: vi.fn(() => Promise.resolve()),
++    }
++
++    const result = await toSSG(app, fsMock, { dir: '.' })
++
++    expect(result.success).toBe(false)
++    expect(result.error?.message).toContain('Path traversal detected')
++    expect(fsMock.mkdir).not.toHaveBeenCalled()
++    expect(fsMock.writeFile).not.toHaveBeenCalled()
++  })
++
++  it('Should reject a drive-relative Windows output root', async () => {
++    const app = new Hono()
++    app.get('/', (c) => c.text('Hello, World!'))
++    const fsMock: FileSystemModule = {
++      writeFile: vi.fn(() => Promise.resolve()),
++      mkdir: vi.fn(() => Promise.resolve()),
++    }
++
++    const result = await toSSG(app, fsMock, { dir: 'C:' })
++
++    expect(result.success).toBe(false)
++    expect(result.error?.message).toContain('Path traversal detected')
++    expect(fsMock.mkdir).not.toHaveBeenCalled()
++    expect(fsMock.writeFile).not.toHaveBeenCalled()
++  })
++
++  it('Should preserve a UNC output directory', async () => {
++    const app = new Hono()
++    app.get('/', (c) => c.html('Hello, World!'))
++    const fsMock: FileSystemModule = {
++      writeFile: vi.fn(() => Promise.resolve()),
++      mkdir: vi.fn(() => Promise.resolve()),
++    }
++
++    const result = await toSSG(app, fsMock, { dir: '\\\\server\\share\\out' })
++
++    expect(result.success).toBe(true)
++    expect(fsMock.mkdir).toHaveBeenCalledWith('//server/share/out', { recursive: true })
++    expect(fsMock.writeFile).toHaveBeenCalledWith(
++      '//server/share/out/index.html',
++      expect.any(String)
++    )
++  })
++
++  it('Should normalize redundant leading separators in a POSIX output directory', async () => {
++    const app = new Hono()
++    app.get('/', (c) => c.html('Hello, World!'))
++    const fsMock: FileSystemModule = {
++      writeFile: vi.fn(() => Promise.resolve()),
++      mkdir: vi.fn(() => Promise.resolve()),
++    }
++
++    const result = await toSSG(app, fsMock, { dir: '///tmp/out' })
++
++    expect(result.success).toBe(true)
++    expect(fsMock.mkdir).toHaveBeenCalledWith('/tmp/out', { recursive: true })
++    expect(fsMock.writeFile).toHaveBeenCalledWith('/tmp/out/index.html', expect.any(String))
++  })
++
+   it('Should correctly generate files with the expected paths', async () => {
+     app.get('/data', (c) =>
+       c.text(JSON.stringify({ title: 'hono' }), 200, {
+diff --git a/src/helper/ssg/ssg.ts b/src/helper/ssg/ssg.ts
+index c0569ded..80669758 100644
+--- a/src/helper/ssg/ssg.ts
++++ b/src/helper/ssg/ssg.ts
+@@ -321,7 +321,8 @@ export const saveContentToFile = async (
+   const filePath = generateFilePath(routePath, outDir, mimeType, extensionMap)
+   const dirPath = dirname(filePath)
+ 
+-  if (!createdDirs.has(dirPath)) {
++  // `dirPath` is empty when outDir itself is the current directory
++  if (dirPath !== '' && !createdDirs.has(dirPath)) {
+     await fsModule.mkdir(dirPath, { recursive: true })
+     createdDirs.add(dirPath)
+   }
+diff --git a/src/helper/ssg/utils.test.ts b/src/helper/ssg/utils.test.ts
+index 60bf6b36..098461dd 100644
+--- a/src/helper/ssg/utils.test.ts
++++ b/src/helper/ssg/utils.test.ts
+@@ -22,9 +22,13 @@ describe('joinPath', () => {
+     expect(joinPaths('..', '..')).toBe('../..') // parent and parent
+     expect(joinPaths('.test../test2/../')).toBe('.test..') //shuffle
+     expect(joinPaths('.test./.test2/../')).toBe('.test.') //shuffle2
++    expect(joinPaths('static/a/b/../../../pwned')).toBe('pwned') // consecutive parents
++    expect(joinPaths('///tmp/out', 'index.html')).toBe('/tmp/out/index.html')
++    expect(joinPaths('//tmp', 'index.html')).toBe('/tmp/index.html')
+   })
+   it('Should windows path is valid.', () => {
+     expect(joinPaths('a\\b\\c', 'd\\e')).toBe('a/b/c/d/e')
++    expect(joinPaths('\\\\server\\share\\out', 'index.html')).toBe('//server/share/out/index.html')
+   })
+ })
+ 
+@@ -41,6 +45,12 @@ describe('ensureWithinOutDir', () => {
+     expect(() => ensureWithinOutDir('./static', 'static/sub/page.html')).not.toThrow()
+     expect(() => ensureWithinOutDir('/out', '/out/index.html')).not.toThrow()
+     expect(() => ensureWithinOutDir('./static', 'static/a/../b.html')).not.toThrow()
++    expect(() => ensureWithinOutDir('./static', 'static/a/b/../../c.html')).not.toThrow()
++    expect(() =>
++      ensureWithinOutDir('\\\\server\\share\\out', '//server/share/out/index.html')
++    ).not.toThrow()
++    expect(() => ensureWithinOutDir('///tmp/out', '/tmp/out/index.html')).not.toThrow()
++    expect(() => ensureWithinOutDir('//tmp', '/tmp/index.html')).not.toThrow()
+   })
+ 
+   it('Should throw for paths outside outDir via traversal', () => {
+@@ -50,6 +60,9 @@ describe('ensureWithinOutDir', () => {
+     expect(() => ensureWithinOutDir('./static', 'static/../../pwned.txt')).toThrow(
+       'Path traversal detected'
+     )
++    expect(() => ensureWithinOutDir('./static', 'static/a/../../pwned.txt')).toThrow(
++      'Path traversal detected'
++    )
+   })
+ 
+   it('Should throw for paths that partially match outDir name', () => {
+@@ -57,4 +70,33 @@ describe('ensureWithinOutDir', () => {
+       'Path traversal detected'
+     )
+   })
++
++  it('Should accept the current directory as outDir', () => {
++    expect(() => ensureWithinOutDir('.', 'index.html')).not.toThrow()
++    expect(() => ensureWithinOutDir('./', 'index.html')).not.toThrow()
++    expect(() => ensureWithinOutDir('', 'index.html')).not.toThrow()
++    expect(() => ensureWithinOutDir('.', '../pwned.html')).toThrow('Path traversal detected')
++  })
++
++  it('Should throw for paths that climb above a parent outDir', () => {
++    expect(() => ensureWithinOutDir('..', '../out/index.html')).not.toThrow()
++    expect(() => ensureWithinOutDir('..', '../../pwned.txt')).toThrow('Path traversal detected')
++    expect(() => ensureWithinOutDir('../..', '../../../pwned.txt')).toThrow(
++      'Path traversal detected'
++    )
++  })
++
++  it('Should throw when outDir and filePath differ in absoluteness', () => {
++    expect(() => ensureWithinOutDir('/out', 'out/index.html')).toThrow('Path traversal detected')
++    expect(() => ensureWithinOutDir('./out', '/out/index.html')).toThrow('Path traversal detected')
++    expect(() => ensureWithinOutDir('.', '/etc/pwned.html')).toThrow('Path traversal detected')
++    expect(() => ensureWithinOutDir('.', 'C:\\Windows\\pwned.html')).toThrow(
++      'Path traversal detected'
++    )
++    expect(() => ensureWithinOutDir('.', 'C:pwned.html')).toThrow('Path traversal detected')
++    expect(() => ensureWithinOutDir('C:', 'C:/pwned.html')).toThrow('Path traversal detected')
++    expect(() =>
++      ensureWithinOutDir('\\\\server\\share\\out', '/server/share/out/pwned.html')
++    ).toThrow('Path traversal detected')
++  })
+ })
+diff --git a/src/helper/ssg/utils.ts b/src/helper/ssg/utils.ts
+index 53416300..ffbe28b7 100644
+--- a/src/helper/ssg/utils.ts
++++ b/src/helper/ssg/utils.ts
+@@ -17,8 +17,15 @@ const normalizePath = (path: string): string => {
+   return path.replace(/(\\)/g, '/').replace(/\/$/g, '')
+ }
+ 
+-const handleParent = (resultPaths: string[], beforeParentFlag: boolean): void => {
+-  if (resultPaths.length === 0 || beforeParentFlag) {
++const getUncRoot = (path: string): string | undefined => {
++  const uncRoot = path.replace(/\\/g, '/').match(/^\/\/([^/]+)\/([^/]+)/)
++  if (uncRoot) {
++    return `${uncRoot[1].toLowerCase()}/${uncRoot[2].toLowerCase()}`
++  }
++}
++
++const handleParent = (resultPaths: string[]): void => {
++  if (resultPaths.length === 0 || resultPaths[resultPaths.length - 1] === '..') {
+     resultPaths.push('..')
+   } else {
+     resultPaths.pop()
+@@ -33,25 +40,23 @@ const handleNonDot = (path: string, resultPaths: string[]): void => {
+ }
+ 
+ const handleSegments = (paths: string[], resultPaths: string[]): void => {
+-  let beforeParentFlag = false
+   for (const path of paths) {
+     // Handle `..`
+     if (path === '..') {
+-      handleParent(resultPaths, beforeParentFlag)
+-      beforeParentFlag = true
++      handleParent(resultPaths)
+     } else {
+       // Handle `.` or `abc`
+       handleNonDot(path, resultPaths)
+-      beforeParentFlag = false
+     }
+   }
+ }
+ 
+ export const joinPaths = (...paths: string[]): string => {
++  const hasUncPrefix = getUncRoot(paths[0]) !== undefined
+   paths = paths.map(normalizePath)
+   const resultPaths: string[] = []
+   handleSegments(paths.join('/').split('/'), resultPaths)
+-  return (paths[0][0] === '/' ? '/' : '') + resultPaths.join('/')
++  return (hasUncPrefix ? '//' : paths[0][0] === '/' ? '/' : '') + resultPaths.join('/')
+ }
+ 
+ interface FilterStaticGenerateRouteData {
+@@ -74,13 +79,39 @@ export const isDynamicRoute = (path: string): boolean => {
+   return path.split('/').some((segment) => segment.startsWith(':') || segment.includes('*'))
+ }
+ 
++const toSegments = (path: string): string[] => (path === '' ? [] : path.split('/'))
++
++const getPathRoot = (path: string): string => {
++  const normalizedPath = path.replace(/\\/g, '/')
++  const uncRoot = getUncRoot(normalizedPath)
++  if (uncRoot) {
++    return `unc:${uncRoot}`
++  }
++
++  const driveRoot = normalizedPath.match(/^([A-Za-z]):/)
++  if (driveRoot) {
++    const kind = normalizedPath[2] === '/' ? 'drive-absolute' : 'drive-relative'
++    return `${kind}:${driveRoot[1].toLowerCase()}`
++  }
++
++  return normalizedPath.startsWith('/') ? 'absolute' : 'relative'
++}
++
+ export const ensureWithinOutDir = (outDir: string, filePath: string): void => {
+-  const normalizedOutDir = joinPaths('/', outDir)
+-  const normalizedFilePath = joinPaths('/', filePath)
++  const outDirSegments = toSegments(joinPaths(outDir))
++  const filePathSegments = toSegments(joinPaths(filePath))
++
++  const hasMismatchedPathRoot = getPathRoot(outDir) !== getPathRoot(filePath)
++
++  // `joinPaths` collects every remaining `..` at the head, so a `..` right after
++  // the outDir segments means the file path climbs above outDir
++  const climbsAboveOutDir = filePathSegments[outDirSegments.length] === '..'
+ 
+   if (
+-    normalizedFilePath !== normalizedOutDir &&
+-    !normalizedFilePath.startsWith(`${normalizedOutDir}/`)
++    hasMismatchedPathRoot ||
++    filePathSegments.length <= outDirSegments.length ||
++    !outDirSegments.every((segment, i) => segment === filePathSegments[i]) ||
++    climbsAboveOutDir
+   ) {
+     throw new Error(`Path traversal detected: "${filePath}" is outside the output directory`)
+   }

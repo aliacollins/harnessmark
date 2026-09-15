@@ -1,0 +1,124 @@
+diff --git a/src/middleware/cors/index.test.ts b/src/middleware/cors/index.test.ts
+index 80478a1c..fbd64a61 100644
+--- a/src/middleware/cors/index.test.ts
++++ b/src/middleware/cors/index.test.ts
+@@ -88,6 +88,14 @@ describe('CORS by Middleware', () => {
+     return c.json({ success: true })
+   })
+ 
++  app.get('/api/vary-header', () => {
++    return new Response(JSON.stringify({ success: true }), {
++      headers: {
++        Vary: 'X-Custom-Vary-Value',
++      },
++    })
++  })
++
+   app.get('/api2/abc', (c) => {
+     return c.json({ success: true })
+   })
+@@ -96,6 +104,14 @@ describe('CORS by Middleware', () => {
+     return c.json({ success: true })
+   })
+ 
++  app.get('/api3/vary-header', () => {
++    return new Response(JSON.stringify({ success: true }), {
++      headers: {
++        Vary: 'X-Custom-Vary-Value',
++      },
++    })
++  })
++
+   app.get('/api4/abc', (c) => {
+     return c.json({ success: true })
+   })
+@@ -193,17 +209,40 @@ describe('CORS by Middleware', () => {
+     ).toBeFalsy()
+   })
+ 
+-  it('Allow different Vary header value', async () => {
++  it('Set "Origin" to Vary header', async () => {
+     const res = await app.request('http://localhost/api3/abc', {
+       headers: {
+-        Vary: 'accept-encoding',
+         Origin: 'http://example.com',
+       },
+     })
+ 
+     expect(res.status).toBe(200)
+     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://example.com')
+-    expect(res.headers.get('Vary')).toBe('accept-encoding')
++    expect(res.headers.get('Vary')).toBe('Origin')
++  })
++
++  it('Keep original Vary header', async () => {
++    const res = await app.request('http://localhost/api/vary-header', {
++      headers: {
++        Origin: 'http://example.com',
++      },
++    })
++
++    expect(res.status).toBe(200)
++    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*')
++    expect(res.headers.get('Vary')).toBe('X-Custom-Vary-Value')
++  })
++
++  it('Append "Origin" to Vary header, if response has some Vary header', async () => {
++    const res = await app.request('http://localhost/api3/vary-header', {
++      headers: {
++        Origin: 'http://example.com',
++      },
++    })
++
++    expect(res.status).toBe(200)
++    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://example.com')
++    expect(res.headers.get('Vary')).toBe('X-Custom-Vary-Value, Origin')
+   })
+ 
+   it('Allow origins by function', async () => {
+diff --git a/src/middleware/cors/index.ts b/src/middleware/cors/index.ts
+index a8a9876e..d0565e12 100644
+--- a/src/middleware/cors/index.ts
++++ b/src/middleware/cors/index.ts
+@@ -106,18 +106,6 @@ export const cors = (options?: CORSOptions): MiddlewareHandler => {
+       set('Access-Control-Allow-Origin', allowOrigin)
+     }
+ 
+-    // Suppose the server sends a response with an Access-Control-Allow-Origin value with an explicit origin (rather than the "*" wildcard).
+-    // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin
+-    if (opts.origin !== '*') {
+-      const existingVary = c.req.header('Vary')
+-
+-      if (existingVary) {
+-        set('Vary', existingVary)
+-      } else {
+-        set('Vary', 'Origin')
+-      }
+-    }
+-
+     if (opts.credentials) {
+       set('Access-Control-Allow-Credentials', 'true')
+     }
+@@ -127,6 +115,10 @@ export const cors = (options?: CORSOptions): MiddlewareHandler => {
+     }
+ 
+     if (c.req.method === 'OPTIONS') {
++      if (opts.origin !== '*') {
++        set('Vary', 'Origin')
++      }
++
+       if (opts.maxAge != null) {
+         set('Access-Control-Max-Age', opts.maxAge.toString())
+       }
+@@ -158,5 +150,11 @@ export const cors = (options?: CORSOptions): MiddlewareHandler => {
+       })
+     }
+     await next()
++
++    // Suppose the server sends a response with an Access-Control-Allow-Origin value with an explicit origin (rather than the "*" wildcard).
++    // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin
++    if (opts.origin !== '*') {
++      c.header('Vary', 'Origin', { append: true })
++    }
+   }
+ }

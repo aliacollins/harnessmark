@@ -1,0 +1,56 @@
+diff --git a/src/middleware/etag/index.test.ts b/src/middleware/etag/index.test.ts
+index b67a416e..3fde19ae 100644
+--- a/src/middleware/etag/index.test.ts
++++ b/src/middleware/etag/index.test.ts
+@@ -461,4 +461,33 @@ describe('Etag Middleware', () => {
+       expect(res.headers.get('ETag')).toBeNull()
+     })
+   })
++
++  it('Should remove all non-retained headers on 304 without skipping any', async () => {
++    const app = new Hono()
++    app.use('/etag/*', etag())
++    app.get('/etag/multi-headers', (c) => {
++      c.header('X-Custom-1', 'val1')
++      c.header('X-Custom-2', 'val2')
++      c.header('X-Custom-3', 'val3')
++      c.header('X-Custom-4', 'val4')
++      c.header('Cache-Control', 'max-age=3600')
++      return c.text('Hono is hot')
++    })
++    const res1 = await app.request('http://localhost/etag/multi-headers')
++    const etagHeader = res1.headers.get('ETag')!
++    expect(res1.status).toBe(200)
++
++    const res2 = await app.request('http://localhost/etag/multi-headers', {
++      headers: {
++        'If-None-Match': etagHeader,
++      },
++    })
++    expect(res2.status).toBe(304)
++    expect(res2.headers.get('ETag')).toBe(etagHeader)
++    expect(res2.headers.get('Cache-Control')).toBe('max-age=3600')
++    expect(res2.headers.get('X-Custom-1')).toBeNull()
++    expect(res2.headers.get('X-Custom-2')).toBeNull()
++    expect(res2.headers.get('X-Custom-3')).toBeNull()
++    expect(res2.headers.get('X-Custom-4')).toBeNull()
++  })
+ })
+diff --git a/src/middleware/etag/index.ts b/src/middleware/etag/index.ts
+index e79f0717..b4f5fd55 100644
+--- a/src/middleware/etag/index.ts
++++ b/src/middleware/etag/index.ts
+@@ -121,11 +121,11 @@ export const etag = (options?: ETagOptions): MiddlewareHandler => {
+           ETag: etag,
+         },
+       })
+-      c.res.headers.forEach((_, key) => {
++      for (const key of Array.from(c.res.headers.keys())) {
+         if (retainedHeaders.indexOf(key.toLowerCase()) === -1) {
+           c.res.headers.delete(key)
+         }
+-      })
++      }
+     } else {
+       c.res.headers.set('ETag', etag)
+     }

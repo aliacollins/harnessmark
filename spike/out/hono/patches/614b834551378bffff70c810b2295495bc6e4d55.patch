@@ -1,0 +1,274 @@
+diff --git a/src/jsx/base.ts b/src/jsx/base.ts
+index 0a0be361..275a55cd 100644
+--- a/src/jsx/base.ts
++++ b/src/jsx/base.ts
+@@ -10,7 +10,12 @@ import type {
+   JSX as HonoJSX,
+   IntrinsicElements as IntrinsicElementsDefined,
+ } from './intrinsic-elements'
+-import { isValidAttributeName, normalizeIntrinsicElementKey, styleObjectForEach } from './utils'
++import {
++  isValidAttributeName,
++  isValidTagName,
++  normalizeIntrinsicElementKey,
++  styleObjectForEach,
++} from './utils'
+ 
+ // eslint-disable-next-line @typescript-eslint/no-explicit-any
+ export type Props = Record<string, any>
+@@ -135,6 +140,9 @@ export class JSXNode implements HtmlEscaped {
+   isEscaped: true = true as const
+   localContexts?: LocalContexts
+   constructor(tag: string | Function, props: Props, children: Child[]) {
++    if (typeof tag !== 'function' && !isValidTagName(tag)) {
++      throw new Error(`Invalid JSX tag name: ${tag}`)
++    }
+     this.tag = tag
+     this.props = props
+     this.children = children
+diff --git a/src/jsx/index.test.tsx b/src/jsx/index.test.tsx
+index eebff187..f05fef7b 100644
+--- a/src/jsx/index.test.tsx
++++ b/src/jsx/index.test.tsx
+@@ -3,7 +3,16 @@
+ import { html } from '../helper/html'
+ import { Hono } from '../hono'
+ import { Suspense, renderToReadableStream } from './streaming'
+-import DefaultExport, { Fragment, StrictMode, createContext, memo, useContext, version } from '.'
++import DefaultExport, {
++  Fragment,
++  StrictMode,
++  createContext,
++  createElement,
++  jsx,
++  memo,
++  useContext,
++  version,
++} from '.'
+ import type { Context, FC, PropsWithChildren } from '.'
+ 
+ interface SiteData {
+@@ -170,6 +179,48 @@ describe('render to string', () => {
+     expect(template.toString()).toBe('<link>https://example.com</link>')
+   })
+ 
++  describe('programmatic tag names', () => {
++    it('Should throw when jsx() receives a tag name that can break out of the HTML context', () => {
++      const payloads = [
++        '><script>alert(1)</script><x',
++        'div onmouseover="alert(1)" x=',
++        'div></div><img src=x onerror=alert(1)><div',
++        '!--',
++        '!DOCTYPE',
++        '?xml',
++      ]
++
++      for (const tag of payloads) {
++        expect(() => jsx(tag, {}, 'hello')).toThrow(`Invalid JSX tag name: ${tag}`)
++      }
++    })
++
++    it('Should throw when createElement() receives a tag name that can break out of the HTML context', () => {
++      expect(() => createElement('div onmouseover="alert(1)" x=', {}, 'hello')).toThrow(
++        'Invalid JSX tag name: div onmouseover="alert(1)" x='
++      )
++    })
++
++    it('Should throw when jsx() receives an invalid non-primitive tag name', () => {
++      expect(() => jsx(new String('div') as never, {}, 'hello')).toThrow(
++        'Invalid JSX tag name: div'
++      )
++      expect(() =>
++        jsx({ toString: () => 'div onmouseover="alert(1)" x=' } as never, {}, 'hello')
++      ).toThrow('Invalid JSX tag name: div onmouseover="alert(1)" x=')
++    })
++
++    it('Should allow compatible custom and namespaced tag names', () => {
++      expect(jsx('custom-element', {}, 'hello').toString()).toBe(
++        '<custom-element>hello</custom-element>'
++      )
++      expect(jsx('foo:bar', {}, 'hello').toString()).toBe('<foo:bar>hello</foo:bar>')
++      expect(jsx('x.foo', {}, 'hello').toString()).toBe('<x.foo>hello</x.foo>')
++      expect(jsx('x_bar', {}, 'hello').toString()).toBe('<x_bar>hello</x_bar>')
++      expect(jsx('é', {}, 'hello').toString()).toBe('<é>hello</é>')
++    })
++  })
++
+   it('Props value is null', () => {
+     const template = <span data-hello={null}>Hello</span>
+     expect(template.toString()).toBe('<span>Hello</span>')
+diff --git a/src/jsx/utils.test.ts b/src/jsx/utils.test.ts
+index afbd0294..3e681ce2 100644
+--- a/src/jsx/utils.test.ts
++++ b/src/jsx/utils.test.ts
+@@ -1,4 +1,9 @@
+-import { isValidAttributeName, normalizeIntrinsicElementKey, styleObjectForEach } from './utils'
++import {
++  isValidAttributeName,
++  isValidTagName,
++  normalizeIntrinsicElementKey,
++  styleObjectForEach,
++} from './utils'
+ 
+ describe('normalizeIntrinsicElementKey', () => {
+   test.each`
+@@ -19,17 +24,17 @@ describe('normalizeIntrinsicElementKey', () => {
+ 
+ describe('isValidAttributeName', () => {
+   test.each`
+-    name            | expected
+-    ${'class'}      | ${true}
+-    ${'id'}         | ${true}
+-    ${'href'}       | ${true}
+-    ${'data-foo'}   | ${true}
+-    ${'aria-label'} | ${true}
+-    ${'onclick'}    | ${true}
+-    ${'viewBox'}    | ${true}
+-    ${'xml:lang'}   | ${true}
+-  `('should return $expected for valid name "$name"', ({ name, expected }) => {
+-    expect(isValidAttributeName(name)).toBe(expected)
++    name
++    ${'class'}
++    ${'id'}
++    ${'href'}
++    ${'data-foo'}
++    ${'aria-label'}
++    ${'onclick'}
++    ${'viewBox'}
++    ${'xml:lang'}
++  `('should return true for valid name "$name"', ({ name }) => {
++    expect(isValidAttributeName(name)).toBe(true)
+   })
+ 
+   test.each`
+@@ -60,6 +65,65 @@ describe('isValidAttributeName', () => {
+   `('should return true for valid "$description" names', ({ name }) => {
+     expect(isValidAttributeName(name)).toBe(true)
+   })
++
++  it('should keep validating names after the valid attribute name cache is reset', () => {
++    for (let i = 0; i < 1025; i++) {
++      expect(isValidAttributeName(`data-k${i}`)).toBe(true)
++    }
++
++    expect(isValidAttributeName('class')).toBe(true)
++    expect(isValidAttributeName('" onfocus="alert(1)')).toBe(false)
++  })
++})
++
++describe('isValidTagName', () => {
++  test.each`
++    name
++    ${''}
++    ${'div'}
++    ${'h1'}
++    ${'custom-element'}
++    ${'clipPath'}
++    ${'foo:bar'}
++    ${'x.foo'}
++    ${'x_bar'}
++    ${'é'}
++  `('should return true for valid tag name "$name"', ({ name }) => {
++    expect(isValidTagName(name)).toBe(true)
++  })
++
++  test.each`
++    name                             | description
++    ${'foo bar'}                     | ${'space'}
++    ${'foo\nbar'}                    | ${'newline'}
++    ${'" onfocus="alert(1)'}         | ${'double quote'}
++    ${"' onfocus='alert(1)"}         | ${'single quote'}
++    ${'foo<bar'}                     | ${'less than'}
++    ${'"><script>alert(1)</script>'} | ${'greater than'}
++    ${'foo=bar'}                     | ${'equals sign'}
++    ${'foo/bar'}                     | ${'slash'}
++    ${'foo\\bar'}                    | ${'backslash'}
++    ${'foo`bar'}                     | ${'backtick'}
++    ${'a\x00b'}                      | ${'null byte'}
++    ${'a\x1fb'}                      | ${'control character'}
++    ${'a\x7fb'}                      | ${'DEL character'}
++    ${'!'}                           | ${'single bang'}
++    ${'!--'}                         | ${'parser-control bang prefix'}
++    ${'!DOCTYPE'}                    | ${'doctype-like name'}
++    ${'?'}                           | ${'single question mark'}
++    ${'?xml'}                        | ${'processing instruction'}
++  `('should return false for "$description"', ({ name }) => {
++    expect(isValidTagName(name)).toBe(false)
++  })
++
++  it('should keep validating names after the valid tag name cache is reset', () => {
++    for (let i = 0; i < 257; i++) {
++      expect(isValidTagName(`custom-${i}`)).toBe(true)
++    }
++
++    expect(isValidTagName('div')).toBe(true)
++    expect(isValidTagName('div onmouseover="alert(1)"')).toBe(false)
++  })
+ })
+ 
+ describe('styleObjectForEach', () => {
+diff --git a/src/jsx/utils.ts b/src/jsx/utils.ts
+index eeedb465..ba9f8e42 100644
+--- a/src/jsx/utils.ts
++++ b/src/jsx/utils.ts
+@@ -13,7 +13,43 @@ export const normalizeIntrinsicElementKey = (key: string): string =>
+ 
+ // eslint-disable-next-line no-control-regex
+ const invalidAttributeNameCharRe = /[\s"'<>/=`\\\x00-\x1f\x7f-\x9f]/
++const validAttributeNameCache = new Set<string>()
++const validAttributeNameCacheMax = 1024
++// reject HTML parser-control tag starters ('!' for comments/doctype, '?' for
++// processing instructions) in addition to the shared invalid-char set
++// eslint-disable-next-line no-control-regex
++const invalidTagNameCharRe = /^[!?]|[\s"'<>/=`\\\x00-\x1f\x7f-\x9f]/
++const validTagNameCache = new Set<unknown>()
++const validTagNameCacheMax = 256
++
++const cacheValidName = (cache: Set<unknown>, max: number, name: string): void => {
++  if (cache.size >= max) {
++    cache.clear()
++  }
++  cache.add(name)
++}
++
++export const isValidTagName = (name: unknown): name is string => {
++  if (validTagNameCache.has(name)) {
++    return true
++  }
++  if (typeof name !== 'string') {
++    return false
++  }
++  if (name.length === 0) {
++    return true
++  }
++  if (invalidTagNameCharRe.test(name)) {
++    return false
++  }
++  cacheValidName(validTagNameCache, validTagNameCacheMax, name)
++  return true
++}
++
+ export const isValidAttributeName = (name: string): boolean => {
++  if (validAttributeNameCache.has(name)) {
++    return true
++  }
+   const len = name.length
+   if (len === 0) {
+     return false
+@@ -32,9 +68,15 @@ export const isValidAttributeName = (name: string): boolean => {
+       )
+     ) {
+       // non-fast-path character found — fall back to regex for the full name
+-      return !invalidAttributeNameCharRe.test(name)
++      if (!invalidAttributeNameCharRe.test(name)) {
++        cacheValidName(validAttributeNameCache, validAttributeNameCacheMax, name)
++        return true
++      } else {
++        return false
++      }
+     }
+   }
++  cacheValidName(validAttributeNameCache, validAttributeNameCacheMax, name)
+   return true
+ }
+ 

@@ -1,0 +1,46 @@
+diff --git a/src/utils/jwt/jwt.test.ts b/src/utils/jwt/jwt.test.ts
+index 0f9404e2..78a4c502 100644
+--- a/src/utils/jwt/jwt.test.ts
++++ b/src/utils/jwt/jwt.test.ts
+@@ -122,6 +122,28 @@ describe('JWT', () => {
+     expect(authorized).toBeUndefined()
+   })
+ 
++  it('JwtTokenExpired after Y2038', async () => {
++    const postY2038 = 2147483648 // 2038-01-19 03:14:08 UTC
++    vi.useFakeTimers().setSystemTime(new Date(postY2038 * 1000))
++
++    const expIn2025 = 1735689600 // 2025-01-01 00:00:00 UTC
++    const payload = { message: 'hello', exp: expIn2025 }
++    const secret = 'a-secret'
++    const tok = await JWT.sign(payload, secret, AlgorithmTypes.HS256)
++
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, AlgorithmTypes.HS256)
++    } catch (e) {
++      err = e
++    }
++    expect(err).toEqual(new JwtTokenExpired(tok))
++    expect(authorized).toBeUndefined()
++
++    vi.useRealTimers()
++  })
++
+   it('JwtTokenIssuedAt', async () => {
+     const now = 1633046400
+     vi.useFakeTimers().setSystemTime(new Date().setTime(now * 1000))
+diff --git a/src/utils/jwt/jwt.ts b/src/utils/jwt/jwt.ts
+index db033875..9bdd2e0d 100644
+--- a/src/utils/jwt/jwt.ts
++++ b/src/utils/jwt/jwt.ts
+@@ -127,7 +127,7 @@ export const verify = async (
+   if (header.alg !== alg) {
+     throw new JwtAlgorithmMismatch(alg, header.alg)
+   }
+-  const now = (Date.now() / 1000) | 0
++  const now = Math.floor(Date.now() / 1000)
+   if (nbf && payload.nbf && payload.nbf > now) {
+     throw new JwtTokenNotBefore(token)
+   }

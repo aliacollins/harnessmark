@@ -1,0 +1,38 @@
+diff --git a/src/client/client.test.ts b/src/client/client.test.ts
+index defedcde..141e3c97 100644
+--- a/src/client/client.test.ts
++++ b/src/client/client.test.ts
+@@ -885,6 +885,20 @@ describe('Use custom fetch (app.request) method', () => {
+     const res = await client.search.$get()
+     expect(res.ok).toBe(true)
+   })
++
++  it.each([false, 0, '', null])('Should send falsy JSON value: %j', async (json) => {
++    const app = new Hono().post(
++      '/json',
++      validator('json', (value) => value as boolean | number | string | null),
++      (c) => c.json(c.req.valid('json'))
++    )
++    const client = hc<typeof app>('', { fetch: app.request })
++
++    const res = await client.json.$post({ json })
++
++    expect(res.status).toBe(200)
++    expect(await res.json()).toBe(json)
++  })
+ })
+ 
+ describe('Optional parameters in JSON response', () => {
+diff --git a/src/client/client.ts b/src/client/client.ts
+index 0a614483..1ce6d60a 100644
+--- a/src/client/client.ts
++++ b/src/client/client.ts
+@@ -78,7 +78,7 @@ class ClientRequestImpl {
+         this.rBody = form
+       }
+ 
+-      if (args.json) {
++      if (args.json !== undefined) {
+         this.rBody = JSON.stringify(args.json)
+         this.cType = 'application/json'
+       }

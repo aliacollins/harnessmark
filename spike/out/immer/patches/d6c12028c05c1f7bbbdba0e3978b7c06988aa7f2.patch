@@ -1,0 +1,1908 @@
+diff --git a/__tests__/__snapshots__/base.js.snap b/__tests__/__snapshots__/base.js.snap
+index fa137d3..6f98a59 100644
+--- a/__tests__/__snapshots__/base.js.snap
++++ b/__tests__/__snapshots__/base.js.snap
+@@ -10,8 +10,6 @@ exports[`base functionality - auto-freeze=false:shallow-copy=false:use-listener=
+ 
+ exports[`base functionality - auto-freeze=false:shallow-copy=false:use-listener=false > recipe functions > cannot return a modified child draft 1`] = `[Error: [Immer] An immer producer returned a new value *and* modified its draft. Either return a new value *or* modify the draft.]`;
+ 
+-exports[`base functionality - auto-freeze=false:shallow-copy=false:use-listener=false > recipe functions > cannot return an object that references itself 1`] = `[Error: [Immer] Immer forbids circular references]`;
+-
+ exports[`base functionality - auto-freeze=false:shallow-copy=false:use-listener=false > revokes the draft once produce returns 1`] = `[TypeError: Cannot perform 'get' on a proxy that has been revoked]`;
+ 
+ exports[`base functionality - auto-freeze=false:shallow-copy=false:use-listener=false > revokes the draft once produce returns 2`] = `[TypeError: Cannot perform 'set' on a proxy that has been revoked]`;
+@@ -48,8 +46,6 @@ exports[`base functionality - auto-freeze=false:shallow-copy=false:use-listener=
+ 
+ exports[`base functionality - auto-freeze=false:shallow-copy=false:use-listener=true > recipe functions > cannot return a modified child draft 1`] = `[Error: [Immer] An immer producer returned a new value *and* modified its draft. Either return a new value *or* modify the draft.]`;
+ 
+-exports[`base functionality - auto-freeze=false:shallow-copy=false:use-listener=true > recipe functions > cannot return an object that references itself 1`] = `[Error: [Immer] Immer forbids circular references]`;
+-
+ exports[`base functionality - auto-freeze=false:shallow-copy=false:use-listener=true > revokes the draft once produce returns 1`] = `[TypeError: Cannot perform 'get' on a proxy that has been revoked]`;
+ 
+ exports[`base functionality - auto-freeze=false:shallow-copy=false:use-listener=true > revokes the draft once produce returns 2`] = `[TypeError: Cannot perform 'set' on a proxy that has been revoked]`;
+@@ -86,8 +82,6 @@ exports[`base functionality - auto-freeze=false:shallow-copy=true:use-listener=f
+ 
+ exports[`base functionality - auto-freeze=false:shallow-copy=true:use-listener=false > recipe functions > cannot return a modified child draft 1`] = `[Error: [Immer] An immer producer returned a new value *and* modified its draft. Either return a new value *or* modify the draft.]`;
+ 
+-exports[`base functionality - auto-freeze=false:shallow-copy=true:use-listener=false > recipe functions > cannot return an object that references itself 1`] = `[Error: [Immer] Immer forbids circular references]`;
+-
+ exports[`base functionality - auto-freeze=false:shallow-copy=true:use-listener=false > revokes the draft once produce returns 1`] = `[TypeError: Cannot perform 'get' on a proxy that has been revoked]`;
+ 
+ exports[`base functionality - auto-freeze=false:shallow-copy=true:use-listener=false > revokes the draft once produce returns 2`] = `[TypeError: Cannot perform 'set' on a proxy that has been revoked]`;
+@@ -124,8 +118,6 @@ exports[`base functionality - auto-freeze=false:shallow-copy=true:use-listener=t
+ 
+ exports[`base functionality - auto-freeze=false:shallow-copy=true:use-listener=true > recipe functions > cannot return a modified child draft 1`] = `[Error: [Immer] An immer producer returned a new value *and* modified its draft. Either return a new value *or* modify the draft.]`;
+ 
+-exports[`base functionality - auto-freeze=false:shallow-copy=true:use-listener=true > recipe functions > cannot return an object that references itself 1`] = `[Error: [Immer] Immer forbids circular references]`;
+-
+ exports[`base functionality - auto-freeze=false:shallow-copy=true:use-listener=true > revokes the draft once produce returns 1`] = `[TypeError: Cannot perform 'get' on a proxy that has been revoked]`;
+ 
+ exports[`base functionality - auto-freeze=false:shallow-copy=true:use-listener=true > revokes the draft once produce returns 2`] = `[TypeError: Cannot perform 'set' on a proxy that has been revoked]`;
+@@ -162,8 +154,6 @@ exports[`base functionality - auto-freeze=true:shallow-copy=false:use-listener=f
+ 
+ exports[`base functionality - auto-freeze=true:shallow-copy=false:use-listener=false > recipe functions > cannot return a modified child draft 1`] = `[Error: [Immer] An immer producer returned a new value *and* modified its draft. Either return a new value *or* modify the draft.]`;
+ 
+-exports[`base functionality - auto-freeze=true:shallow-copy=false:use-listener=false > recipe functions > cannot return an object that references itself 1`] = `[Error: [Immer] Immer forbids circular references]`;
+-
+ exports[`base functionality - auto-freeze=true:shallow-copy=false:use-listener=false > revokes the draft once produce returns 1`] = `[TypeError: Cannot perform 'get' on a proxy that has been revoked]`;
+ 
+ exports[`base functionality - auto-freeze=true:shallow-copy=false:use-listener=false > revokes the draft once produce returns 2`] = `[TypeError: Cannot perform 'set' on a proxy that has been revoked]`;
+@@ -200,8 +190,6 @@ exports[`base functionality - auto-freeze=true:shallow-copy=false:use-listener=t
+ 
+ exports[`base functionality - auto-freeze=true:shallow-copy=false:use-listener=true > recipe functions > cannot return a modified child draft 1`] = `[Error: [Immer] An immer producer returned a new value *and* modified its draft. Either return a new value *or* modify the draft.]`;
+ 
+-exports[`base functionality - auto-freeze=true:shallow-copy=false:use-listener=true > recipe functions > cannot return an object that references itself 1`] = `[Error: [Immer] Immer forbids circular references]`;
+-
+ exports[`base functionality - auto-freeze=true:shallow-copy=false:use-listener=true > revokes the draft once produce returns 1`] = `[TypeError: Cannot perform 'get' on a proxy that has been revoked]`;
+ 
+ exports[`base functionality - auto-freeze=true:shallow-copy=false:use-listener=true > revokes the draft once produce returns 2`] = `[TypeError: Cannot perform 'set' on a proxy that has been revoked]`;
+@@ -238,8 +226,6 @@ exports[`base functionality - auto-freeze=true:shallow-copy=true:use-listener=fa
+ 
+ exports[`base functionality - auto-freeze=true:shallow-copy=true:use-listener=false > recipe functions > cannot return a modified child draft 1`] = `[Error: [Immer] An immer producer returned a new value *and* modified its draft. Either return a new value *or* modify the draft.]`;
+ 
+-exports[`base functionality - auto-freeze=true:shallow-copy=true:use-listener=false > recipe functions > cannot return an object that references itself 1`] = `[Error: [Immer] Immer forbids circular references]`;
+-
+ exports[`base functionality - auto-freeze=true:shallow-copy=true:use-listener=false > revokes the draft once produce returns 1`] = `[TypeError: Cannot perform 'get' on a proxy that has been revoked]`;
+ 
+ exports[`base functionality - auto-freeze=true:shallow-copy=true:use-listener=false > revokes the draft once produce returns 2`] = `[TypeError: Cannot perform 'set' on a proxy that has been revoked]`;
+@@ -276,8 +262,6 @@ exports[`base functionality - auto-freeze=true:shallow-copy=true:use-listener=tr
+ 
+ exports[`base functionality - auto-freeze=true:shallow-copy=true:use-listener=true > recipe functions > cannot return a modified child draft 1`] = `[Error: [Immer] An immer producer returned a new value *and* modified its draft. Either return a new value *or* modify the draft.]`;
+ 
+-exports[`base functionality - auto-freeze=true:shallow-copy=true:use-listener=true > recipe functions > cannot return an object that references itself 1`] = `[Error: [Immer] Immer forbids circular references]`;
+-
+ exports[`base functionality - auto-freeze=true:shallow-copy=true:use-listener=true > revokes the draft once produce returns 1`] = `[TypeError: Cannot perform 'get' on a proxy that has been revoked]`;
+ 
+ exports[`base functionality - auto-freeze=true:shallow-copy=true:use-listener=true > revokes the draft once produce returns 2`] = `[TypeError: Cannot perform 'set' on a proxy that has been revoked]`;
+diff --git a/__tests__/base.js b/__tests__/base.js
+index d8bdfdc..b09500a 100644
+--- a/__tests__/base.js
++++ b/__tests__/base.js
+@@ -2367,9 +2367,9 @@ function runBaseTest(name, autoFreeze, useStrictShallowCopy, useListener) {
+ 				draft.y = 1
+ 				draft.z = NaN
+ 				if (!isProd) {
+-					expect(draft[DRAFT_STATE].assigned_.x).toBe(true)
+-					expect(draft[DRAFT_STATE].assigned_.y).toBe(undefined)
+-					expect(draft[DRAFT_STATE].assigned_.z).toBe(undefined)
++					expect(draft[DRAFT_STATE].assigned_.get("x")).toBe(true)
++					expect(draft[DRAFT_STATE].assigned_.get("y")).toBe(undefined)
++					expect(draft[DRAFT_STATE].assigned_.get("z")).toBe(undefined)
+ 				}
+ 			})
+ 			expect(nextState.x).toBe("s2")
+@@ -2756,13 +2756,31 @@ function runBaseTest(name, autoFreeze, useStrictShallowCopy, useListener) {
+ 				expect(next[0]).toBe(next[1])
+ 			})
+ 
+-			// This actually seems to pass now!
+-			it("cannot return an object that references itself", () => {
++			// As of the finalization callback rewrite, the
++			// the original `() => res.self` check passes without throwing,
++			// but we still will not have self-references
++			// when returning updated values
++			it("can return self-references, but not for modified values", () => {
+ 				const res = {}
+ 				res.self = res
+-				expect(() => {
+-					produce(res, () => res.self)
+-				}).toThrowErrorMatchingSnapshot()
++
++				// the call will pass
++				const next = produce(res, draft => {
++					draft.a = 42
++					draft.self.b = 99
++				})
++
++				// Root object and first child were both copied
++				expect(next).not.toBe(next.self)
++				// Second child is the first circular reference
++				expect(next.self.self).not.toBe(next.self)
++				// And it's turtles all the way down
++				expect(next.self.self.self).toBe(next.self.self.self.self)
++				expect(next.a).toBe(42)
++				expect(next.self.b).toBe(99)
++				// The child copy did not receive the update
++				// to the root object
++				expect(next.self.a).toBe(undefined)
+ 			})
+ 		})
+ 
+diff --git a/__tests__/map-set.js b/__tests__/map-set.js
+index 390fcec..d321ca2 100644
+--- a/__tests__/map-set.js
++++ b/__tests__/map-set.js
+@@ -124,7 +124,7 @@ function runBaseTest(name, autoFreeze, useListener) {
+ 				[
+ 					{
+ 						op: "remove",
+-						path: ["map", "b", "a"]
++						path: ["map", "d", "a"]
+ 					},
+ 					{
+ 						op: "remove",
+@@ -132,13 +132,13 @@ function runBaseTest(name, autoFreeze, useListener) {
+ 					},
+ 					{
+ 						op: "remove",
+-						path: ["map", "d", "a"]
++						path: ["map", "b", "a"]
+ 					}
+ 				],
+ 				[
+ 					{
+ 						op: "add",
+-						path: ["map", "b", "a"],
++						path: ["map", "d", "a"],
+ 						value: true
+ 					},
+ 					{
+@@ -148,7 +148,7 @@ function runBaseTest(name, autoFreeze, useListener) {
+ 					},
+ 					{
+ 						op: "add",
+-						path: ["map", "d", "a"],
++						path: ["map", "b", "a"],
+ 						value: true
+ 					}
+ 				]
+@@ -197,7 +197,7 @@ function runBaseTest(name, autoFreeze, useListener) {
+ 			expect(p).toEqual([
+ 				{
+ 					op: "remove",
+-					path: ["map", "b", "a"]
++					path: ["map", "d", "a"]
+ 				},
+ 				{
+ 					op: "remove",
+@@ -205,15 +205,16 @@ function runBaseTest(name, autoFreeze, useListener) {
+ 				},
+ 				{
+ 					op: "remove",
+-					path: ["map", "d", "a"]
++					path: ["map", "b", "a"]
+ 				}
+ 			])
+ 			expect(ip).toEqual([
+ 				{
+ 					op: "add",
+-					path: ["map", "b", "a"],
++					path: ["map", "d", "a"],
+ 					value: true
+ 				},
++
+ 				{
+ 					op: "add",
+ 					path: ["map", "c", "a"],
+@@ -221,7 +222,7 @@ function runBaseTest(name, autoFreeze, useListener) {
+ 				},
+ 				{
+ 					op: "add",
+-					path: ["map", "d", "a"],
++					path: ["map", "b", "a"],
+ 					value: true
+ 				}
+ 			])
+diff --git a/src/core/finalize.ts b/src/core/finalize.ts
+index 895e139..ee26694 100644
+--- a/src/core/finalize.ts
++++ b/src/core/finalize.ts
+@@ -5,7 +5,6 @@ import {
+ 	NOTHING,
+ 	PatchPath,
+ 	each,
+-	has,
+ 	freeze,
+ 	ImmerState,
+ 	isDraft,
+@@ -16,13 +15,19 @@ import {
+ 	die,
+ 	revokeScope,
+ 	isFrozen,
+-	isMap
++	get,
++	Patch,
++	latest,
++	prepareCopy,
++	getFinalValue,
++	getValue
+ } from "../internal"
+ 
+ export function processResult(result: any, scope: ImmerScope) {
+ 	scope.unfinalizedDrafts_ = scope.drafts_.length
+ 	const baseDraft = scope.drafts_![0]
+ 	const isReplaced = result !== undefined && result !== baseDraft
++
+ 	if (isReplaced) {
+ 		if (baseDraft[DRAFT_STATE].modified_) {
+ 			revokeScope(scope)
+@@ -31,20 +36,22 @@ export function processResult(result: any, scope: ImmerScope) {
+ 		if (isDraftable(result)) {
+ 			// Finalize the result in case it contains (or is) a subset of the draft.
+ 			result = finalize(scope, result)
+-			if (!scope.parent_) maybeFreeze(scope, result)
+ 		}
+-		if (scope.patches_) {
+-			getPlugin("Patches").generateReplacementPatches_(
++		const {patchPlugin_} = scope
++		if (patchPlugin_) {
++			patchPlugin_.generateReplacementPatches_(
+ 				baseDraft[DRAFT_STATE].base_,
+ 				result,
+-				scope.patches_,
+-				scope.inversePatches_!
++				scope
+ 			)
+ 		}
+ 	} else {
+ 		// Finalize the base draft.
+-		result = finalize(scope, baseDraft, [])
++		result = finalize(scope, baseDraft)
+ 	}
++
++	maybeFreeze(scope, result, true)
++
+ 	revokeScope(scope)
+ 	if (scope.patches_) {
+ 		scope.patchListener_!(scope.patches_, scope.inversePatches_!)
+@@ -52,154 +59,250 @@ export function processResult(result: any, scope: ImmerScope) {
+ 	return result !== NOTHING ? result : undefined
+ }
+ 
+-function finalize(rootScope: ImmerScope, value: any, path?: PatchPath) {
++function finalize(rootScope: ImmerScope, value: any) {
+ 	// Don't recurse in tho recursive data structures
+ 	if (isFrozen(value)) return value
+ 
+-	const useStrictIteration = rootScope.immer_.shouldUseStrictIteration()
+-
+ 	const state: ImmerState = value[DRAFT_STATE]
+-	// A plain object, might need freezing, might contain drafts
+ 	if (!state) {
+-		each(
+-			value,
+-			(key, childValue) =>
+-				finalizeProperty(rootScope, state, value, key, childValue, path),
+-			useStrictIteration
+-		)
++		const finalValue = handleValue(value, rootScope.handledSet_, rootScope)
++		return finalValue
++	}
++
++	// Never finalize drafts owned by another scope
++	if (!isSameScope(state, rootScope)) {
+ 		return value
+ 	}
+-	// Never finalize drafts owned by another scope.
+-	if (state.scope_ !== rootScope) return value
++
+ 	// Unmodified draft, return the (frozen) original
+ 	if (!state.modified_) {
+-		maybeFreeze(rootScope, state.base_, true)
+ 		return state.base_
+ 	}
+-	// Not finalized yet, let's do that now
++
+ 	if (!state.finalized_) {
+-		state.finalized_ = true
+-		state.scope_.unfinalizedDrafts_--
+-		const result = state.copy_
+-		// Finalize all children of the copy
+-		// For sets we clone before iterating, otherwise we can get in endless loop due to modifying during iteration, see #628
+-		// To preserve insertion order in all cases we then clear the set
+-		// And we let finalizeProperty know it needs to re-add non-draft children back to the target
+-		let resultEach = result
+-		let isSet = false
+-		if (state.type_ === ArchType.Set) {
+-			resultEach = new Set(result)
+-			result.clear()
+-			isSet = true
+-		}
+-		each(
+-			resultEach,
+-			(key, childValue) =>
+-				finalizeProperty(
+-					rootScope,
+-					state,
+-					result,
+-					key,
+-					childValue,
+-					path,
+-					isSet
+-				),
+-			useStrictIteration
+-		)
+-		// everything inside is frozen, we can freeze here
+-		maybeFreeze(rootScope, result, false)
+-		// first time finalizing, let's create those patches
+-		if (path && rootScope.patches_) {
+-			getPlugin("Patches").generatePatches_(
+-				state,
+-				path,
+-				rootScope.patches_,
+-				rootScope.inversePatches_!
+-			)
++		// Execute all registered draft finalization callbacks
++		const {callbacks_} = state
++		if (callbacks_) {
++			while (callbacks_.length > 0) {
++				const callback = callbacks_.pop()!
++				callback(rootScope)
++			}
+ 		}
++
++		generatePatchesAndFinalize(state, rootScope)
+ 	}
++
++	// By now the root copy has been fully updated throughout its tree
+ 	return state.copy_
+ }
+ 
+-function finalizeProperty(
+-	rootScope: ImmerScope,
+-	parentState: undefined | ImmerState,
+-	targetObject: any,
+-	prop: string | number,
+-	childValue: any,
+-	rootPath?: PatchPath,
+-	targetIsSet?: boolean
+-) {
+-	if (childValue == null) {
+-		return
++function maybeFreeze(scope: ImmerScope, value: any, deep = false) {
++	// we never freeze for a non-root scope; as it would prevent pruning for drafts inside wrapping objects
++	if (!scope.parent_ && scope.immer_.autoFreeze_ && scope.canAutoFreeze_) {
++		freeze(value, deep)
+ 	}
++}
++
++function markStateFinalized(state: ImmerState) {
++	state.finalized_ = true
++	state.scope_.unfinalizedDrafts_--
++}
++
++let isSameScope = (state: ImmerState, rootScope: ImmerScope) =>
++	state.scope_ === rootScope
+ 
+-	if (typeof childValue !== "object" && !targetIsSet) {
+-		return
++// A reusable empty array to avoid allocations
++const EMPTY_LOCATIONS_RESULT: (string | symbol | number)[] = []
++
++// Updates all references to a draft in its parent to the finalized value.
++// This handles cases where the same draft appears multiple times in the parent, or has been moved around.
++export function updateDraftInParent(
++	parent: ImmerState,
++	draftValue: any,
++	finalizedValue: any,
++	originalKey?: string | number | symbol
++): void {
++	const parentCopy = latest(parent)
++	const parentType = parent.type_
++
++	// Fast path: Check if draft is still at original key
++	if (originalKey !== undefined) {
++		const currentValue = get(parentCopy, originalKey, parentType)
++		if (currentValue === draftValue) {
++			// Still at original location, just update it
++			set(parentCopy, originalKey, finalizedValue, parentType)
++			return
++		}
+ 	}
+-	const childIsFrozen = isFrozen(childValue)
+-	if (childIsFrozen && !targetIsSet) {
+-		return
++
++	// Slow path: Build reverse mapping of all children
++	// to their indices in the parent, so that we can
++	// replace all locations where this draft appears.
++	// We only have to build this once per parent.
++	if (!parent.draftLocations_) {
++		const draftLocations = (parent.draftLocations_ = new Map())
++
++		// Use `each` which works on Arrays, Maps, and Objects
++		each(parentCopy, (key, value) => {
++			if (isDraft(value)) {
++				const keys = draftLocations.get(value) || []
++				keys.push(key)
++				draftLocations.set(value, keys)
++			}
++		})
+ 	}
+ 
+-	if (process.env.NODE_ENV !== "production" && childValue === targetObject)
+-		die(5)
+-	if (isDraft(childValue)) {
+-		const path =
+-			rootPath &&
+-			parentState &&
+-			parentState!.type_ !== ArchType.Set && // Set objects are atomic since they have no keys.
+-			!has((parentState as Exclude<ImmerState, SetState>).assigned_!, prop) // Skip deep patches for assigned keys.
+-				? rootPath!.concat(prop)
+-				: undefined
+-		// Drafts owned by `scope` are finalized here.
+-		const res = finalize(rootScope, childValue, path)
+-		set(targetObject, prop, res)
+-		// Drafts from another scope must prevented to be frozen
+-		// if we got a draft back from finalize, we're in a nested produce and shouldn't freeze
+-		if (isDraft(res)) {
+-			rootScope.canAutoFreeze_ = false
+-		} else return
+-	} else if (targetIsSet) {
+-		targetObject.add(childValue)
++	// Look up all locations where this draft appears
++	const locations =
++		parent.draftLocations_.get(draftValue) ?? EMPTY_LOCATIONS_RESULT
++
++	// Update all locations
++	for (const location of locations) {
++		set(parentCopy, location, finalizedValue, parentType)
+ 	}
+-	// Search new objects for unfinalized drafts. Frozen objects should never contain drafts.
+-	if (isDraftable(childValue) && !childIsFrozen) {
+-		if (!rootScope.immer_.autoFreeze_ && rootScope.unfinalizedDrafts_ < 1) {
+-			// optimization: if an object is not a draft, and we don't have to
+-			// deepfreeze everything, and we are sure that no drafts are left in the remaining object
+-			// cause we saw and finalized all drafts already; we can stop visiting the rest of the tree.
+-			// This benefits especially adding large data tree's without further processing.
+-			// See add-data.js perf test
++}
++
++// Register a callback to finalize a child draft when the parent draft is finalized.
++// This assumes there is a parent -> child relationship between the two drafts,
++// and we have a key to locate the child in the parent.
++export function registerChildFinalizationCallback(
++	parent: ImmerState,
++	child: ImmerState,
++	key: string | number | symbol
++) {
++	parent.callbacks_.push(function childCleanup(rootScope) {
++		const state: ImmerState = child
++
++		// Can only continue if this is a draft owned by this scope
++		if (!state || !isSameScope(state, rootScope)) {
+ 			return
+ 		}
+-		if (
+-			parentState &&
+-			parentState.base_ &&
+-			parentState.base_[prop] === childValue &&
+-			childIsFrozen
+-		) {
+-			// Object is unchanged from base - no need to process further
+-			return
++
++		// Handle potential set value finalization first
++		rootScope.mapSetPlugin_?.fixSetContents(state)
++
++		const finalizedValue = getFinalValue(state)
++
++		// Update all locations in the parent that referenced this draft
++		updateDraftInParent(parent, state.draft_ ?? state, finalizedValue, key)
++
++		generatePatchesAndFinalize(state, rootScope)
++	})
++}
++
++function generatePatchesAndFinalize(state: ImmerState, rootScope: ImmerScope) {
++	const shouldFinalize =
++		state.modified_ &&
++		!state.finalized_ &&
++		(state.type_ === ArchType.Set || (state.assigned_?.size ?? 0) > 0)
++
++	if (shouldFinalize) {
++		const {patchPlugin_} = rootScope
++		if (patchPlugin_) {
++			const basePath = patchPlugin_!.getPath(state)
++
++			if (basePath) {
++				patchPlugin_!.generatePatches_(state, basePath, rootScope)
++			}
+ 		}
+-		finalize(rootScope, childValue)
+-		// Immer deep freezes plain objects, so if there is no parent state, we freeze as well
+-		// Per #590, we never freeze symbolic properties. Just to make sure don't accidentally interfere
+-		// with other frameworks.
+-		if (
+-			(!parentState || !parentState.scope_.parent_) &&
+-			typeof prop !== "symbol" &&
+-			(isMap(targetObject)
+-				? targetObject.has(prop)
+-				: Object.prototype.propertyIsEnumerable.call(targetObject, prop))
+-		)
+-			maybeFreeze(rootScope, childValue)
++
++		markStateFinalized(state)
+ 	}
+ }
+ 
+-function maybeFreeze(scope: ImmerScope, value: any, deep = false) {
+-	// we never freeze for a non-root scope; as it would prevent pruning for drafts inside wrapping objects
+-	if (!scope.parent_ && scope.immer_.autoFreeze_ && scope.canAutoFreeze_) {
+-		freeze(value, deep)
++export function handleCrossReference(
++	target: ImmerState,
++	key: string | number | symbol,
++	value: any
++) {
++	const {scope_} = target
++	// Check if value is a draft from this scope
++	if (isDraft(value)) {
++		const state: ImmerState = value[DRAFT_STATE]
++		if (isSameScope(state, scope_)) {
++			// Register callback to update this location when the draft finalizes
++
++			state.callbacks_.push(function crossReferenceCleanup() {
++				// Update the target location with finalized value
++				prepareCopy(target)
++
++				const finalizedValue = getFinalValue(state)
++
++				updateDraftInParent(target, value, finalizedValue, key)
++			})
++		}
++	} else if (isDraftable(value)) {
++		// Handle non-draft objects that might contain drafts
++		target.callbacks_.push(function nestedDraftCleanup() {
++			const targetCopy = latest(target)
++
++			if (get(targetCopy, key, target.type_) === value) {
++				// Process the value to replace any nested drafts
++				// finalizeAssigned(target, key, target.scope_)
++
++				if (
++					scope_.drafts_.length > 1 &&
++					((target as Exclude<ImmerState, SetState>).assigned_!.get(key) ??
++						false) === true &&
++					target.copy_
++				) {
++					// This might be a non-draft value that has drafts
++					// inside. We do need to recurse here to handle those.
++					handleValue(
++						get(target.copy_, key, target.type_),
++						scope_.handledSet_,
++						scope_
++					)
++				}
++			}
++		})
++	}
++}
++
++export function handleValue(
++	target: any,
++	handledSet: Set<any>,
++	rootScope: ImmerScope
++) {
++	if (!rootScope.immer_.autoFreeze_ && rootScope.unfinalizedDrafts_ < 1) {
++		// optimization: if an object is not a draft, and we don't have to
++		// deepfreeze everything, and we are sure that no drafts are left in the remaining object
++		// cause we saw and finalized all drafts already; we can stop visiting the rest of the tree.
++		// This benefits especially adding large data tree's without further processing.
++		// See add-data.js perf test
++		return target
++	}
++
++	// Skip if already handled, frozen, or not draftable
++	if (
++		isDraft(target) ||
++		handledSet.has(target) ||
++		!isDraftable(target) ||
++		isFrozen(target)
++	) {
++		return target
+ 	}
++
++	handledSet.add(target)
++
++	// Process ALL properties/entries
++	each(target, (key, value) => {
++		if (isDraft(value)) {
++			const state: ImmerState = value[DRAFT_STATE]
++			if (isSameScope(state, rootScope)) {
++				// Replace draft with finalized value
++
++				const updatedValue = getFinalValue(state)
++
++				set(target, key, updatedValue, target.type_)
++
++				markStateFinalized(state)
++			}
++		} else if (isDraftable(value)) {
++			// Recursively handle nested values
++			handleValue(value, handledSet, rootScope)
++		}
++	})
++
++	return target
+ }
+diff --git a/src/core/immerClass.ts b/src/core/immerClass.ts
+index 64c221f..b0256d7 100644
+--- a/src/core/immerClass.ts
++++ b/src/core/immerClass.ts
+@@ -23,7 +23,18 @@ import {
+ 	getCurrentScope,
+ 	NOTHING,
+ 	freeze,
+-	current
++	current,
++	ImmerScope,
++	registerChildFinalizationCallback,
++	ArchType,
++	MapSetPlugin,
++	AnyMap,
++	AnySet,
++	isObjectish,
++	isFunction,
++	isBoolean,
++	PluginMapSet,
++	PluginPatches
+ } from "../internal"
+ 
+ interface ProducersFns {
+@@ -36,18 +47,17 @@ export type StrictMode = boolean | "class_only"
+ export class Immer implements ProducersFns {
+ 	autoFreeze_: boolean = true
+ 	useStrictShallowCopy_: StrictMode = false
+-	useStrictIteration_: boolean = true
++	useStrictIteration_: boolean = false
+ 
+ 	constructor(config?: {
+ 		autoFreeze?: boolean
+ 		useStrictShallowCopy?: StrictMode
+ 		useStrictIteration?: boolean
+ 	}) {
+-		if (typeof config?.autoFreeze === "boolean")
+-			this.setAutoFreeze(config!.autoFreeze)
+-		if (typeof config?.useStrictShallowCopy === "boolean")
++		if (isBoolean(config?.autoFreeze)) this.setAutoFreeze(config!.autoFreeze)
++		if (isBoolean(config?.useStrictShallowCopy))
+ 			this.setUseStrictShallowCopy(config!.useStrictShallowCopy)
+-		if (typeof config?.useStrictIteration === "boolean")
++		if (isBoolean(config?.useStrictIteration))
+ 			this.setUseStrictIteration(config!.useStrictIteration)
+ 	}
+ 
+@@ -72,7 +82,7 @@ export class Immer implements ProducersFns {
+ 	 */
+ 	produce: IProduce = (base: any, recipe?: any, patchListener?: any) => {
+ 		// curried invocation
+-		if (typeof base === "function" && typeof recipe !== "function") {
++		if (isFunction(base) && !isFunction(recipe)) {
+ 			const defaultBase = recipe
+ 			recipe = base
+ 
+@@ -86,16 +96,15 @@ export class Immer implements ProducersFns {
+ 			}
+ 		}
+ 
+-		if (typeof recipe !== "function") die(6)
+-		if (patchListener !== undefined && typeof patchListener !== "function")
+-			die(7)
++		if (!isFunction(recipe)) die(6)
++		if (patchListener !== undefined && !isFunction(patchListener)) die(7)
+ 
+ 		let result
+ 
+ 		// Only plain objects, arrays, and "immerable classes" are drafted.
+ 		if (isDraftable(base)) {
+ 			const scope = enterScope(this)
+-			const proxy = createProxy(base, undefined)
++			const proxy = createProxy(scope, base, undefined)
+ 			let hasError = true
+ 			try {
+ 				result = recipe(proxy)
+@@ -107,7 +116,7 @@ export class Immer implements ProducersFns {
+ 			}
+ 			usePatchesInScope(scope, patchListener)
+ 			return processResult(result, scope)
+-		} else if (!base || typeof base !== "object") {
++		} else if (!base || !isObjectish(base)) {
+ 			result = recipe(base)
+ 			if (result === undefined) result = base
+ 			if (result === NOTHING) result = undefined
+@@ -115,7 +124,10 @@ export class Immer implements ProducersFns {
+ 			if (patchListener) {
+ 				const p: Patch[] = []
+ 				const ip: Patch[] = []
+-				getPlugin("Patches").generateReplacementPatches_(base, result, p, ip)
++				getPlugin(PluginPatches).generateReplacementPatches_(base, result, {
++					patches_: p,
++					inversePatches_: ip
++				} as ImmerScope) // dummy scope
+ 				patchListener(p, ip)
+ 			}
+ 			return result
+@@ -124,7 +136,7 @@ export class Immer implements ProducersFns {
+ 
+ 	produceWithPatches: IProduceWithPatches = (base: any, recipe?: any): any => {
+ 		// curried invocation
+-		if (typeof base === "function") {
++		if (isFunction(base)) {
+ 			return (state: any, ...args: any[]) =>
+ 				this.produceWithPatches(state, (draft: any) => base(draft, ...args))
+ 		}
+@@ -141,7 +153,7 @@ export class Immer implements ProducersFns {
+ 		if (!isDraftable(base)) die(8)
+ 		if (isDraft(base)) base = current(base)
+ 		const scope = enterScope(this)
+-		const proxy = createProxy(base, undefined)
++		const proxy = createProxy(scope, base, undefined)
+ 		proxy[DRAFT_STATE].isManual_ = true
+ 		leaveScope(scope)
+ 		return proxy as any
+@@ -207,7 +219,7 @@ export class Immer implements ProducersFns {
+ 			patches = patches.slice(i + 1)
+ 		}
+ 
+-		const applyPatchesImpl = getPlugin("Patches").applyPatches_
++		const applyPatchesImpl = getPlugin(PluginPatches).applyPatches_
+ 		if (isDraft(base)) {
+ 			// N.B: never hits if some patch a replacement, patches are never drafts
+ 			return applyPatchesImpl(base, patches)
+@@ -220,17 +232,42 @@ export class Immer implements ProducersFns {
+ }
+ 
+ export function createProxy<T extends Objectish>(
++	rootScope: ImmerScope,
+ 	value: T,
+-	parent?: ImmerState
++	parent?: ImmerState,
++	key?: string | number | symbol
+ ): Drafted<T, ImmerState> {
+ 	// precondition: createProxy should be guarded by isDraftable, so we know we can safely draft
+-	const draft: Drafted = isMap(value)
+-		? getPlugin("MapSet").proxyMap_(value, parent)
++	// returning a tuple here lets us skip a proxy access
++	// to DRAFT_STATE later
++	const [draft, state] = isMap(value)
++		? getPlugin(PluginMapSet).proxyMap_(value, parent)
+ 		: isSet(value)
+-		? getPlugin("MapSet").proxySet_(value, parent)
++		? getPlugin(PluginMapSet).proxySet_(value, parent)
+ 		: createProxyProxy(value, parent)
+ 
+-	const scope = parent ? parent.scope_ : getCurrentScope()
++	const scope = parent?.scope_ ?? getCurrentScope()
+ 	scope.drafts_.push(draft)
+-	return draft
++
++	// Ensure the parent callbacks are passed down so we actually
++	// track all callbacks added throughout the tree
++	state.callbacks_ = parent?.callbacks_ ?? []
++	state.key_ = key
++
++	if (parent && key !== undefined) {
++		registerChildFinalizationCallback(parent, state, key)
++	} else {
++		// It's a root draft, register it with the scope
++		state.callbacks_.push(function rootDraftCleanup(rootScope) {
++			rootScope.mapSetPlugin_?.fixSetContents(state)
++
++			const {patchPlugin_} = rootScope
++
++			if (state.modified_ && patchPlugin_) {
++				patchPlugin_.generatePatches_(state, [], rootScope)
++			}
++		})
++	}
++
++	return draft as any
+ }
+diff --git a/src/core/proxy.ts b/src/core/proxy.ts
+index 3ce06aa..57b8f68 100644
+--- a/src/core/proxy.ts
++++ b/src/core/proxy.ts
+@@ -17,13 +17,16 @@ import {
+ 	die,
+ 	createProxy,
+ 	ArchType,
+-	ImmerScope
++	ImmerScope,
++	handleCrossReference,
++	WRITABLE,
++	CONFIGURABLE,
++	ENUMERABLE,
++	VALUE,
++	isArray
+ } from "../internal"
+ 
+ interface ProxyBaseState extends ImmerBaseState {
+-	assigned_: {
+-		[property: string]: boolean
+-	}
+ 	parent_?: ImmerState
+ 	revoke_(): void
+ }
+@@ -52,10 +55,10 @@ type ProxyState = ProxyObjectState | ProxyArrayState
+ export function createProxyProxy<T extends Objectish>(
+ 	base: T,
+ 	parent?: ImmerState
+-): Drafted<T, ProxyState> {
+-	const isArray = Array.isArray(base)
++): [Drafted<T, ProxyState>, ProxyState] {
++	const baseIsArray = isArray(base)
+ 	const state: ProxyState = {
+-		type_: isArray ? ArchType.Array : (ArchType.Object as any),
++		type_: baseIsArray ? ArchType.Array : (ArchType.Object as any),
+ 		// Track which produce call this is associated with.
+ 		scope_: parent ? parent.scope_ : getCurrentScope()!,
+ 		// True for both shallow and deep changes.
+@@ -63,7 +66,8 @@ export function createProxyProxy<T extends Objectish>(
+ 		// Used during finalization.
+ 		finalized_: false,
+ 		// Track which properties have been assigned (true) or deleted (false).
+-		assigned_: {},
++		// actually instantiated in `prepareCopy()`
++		assigned_: undefined,
+ 		// The parent draft state.
+ 		parent_: parent,
+ 		// The base state.
+@@ -74,7 +78,9 @@ export function createProxyProxy<T extends Objectish>(
+ 		copy_: null,
+ 		// Called by the `produce` function.
+ 		revoke_: null as any,
+-		isManual_: false
++		isManual_: false,
++		// `callbacks` actually gets assigned in `createProxy`
++		callbacks_: undefined as any
+ 	}
+ 
+ 	// the traps must target something, a bit like the 'real' base.
+@@ -85,7 +91,7 @@ export function createProxyProxy<T extends Objectish>(
+ 	// Note that in the case of an array, we put the state in an array to have better Reflect defaults ootb
+ 	let target: T = state as any
+ 	let traps: ProxyHandler<object | Array<any>> = objectTraps
+-	if (isArray) {
++	if (baseIsArray) {
+ 		target = [state] as any
+ 		traps = arrayTraps
+ 	}
+@@ -93,7 +99,7 @@ export function createProxyProxy<T extends Objectish>(
+ 	const {revoke, proxy} = Proxy.revocable(target, traps)
+ 	state.draft_ = proxy as any
+ 	state.revoke_ = revoke
+-	return proxy as any
++	return [proxy as any, state]
+ }
+ 
+ /**
+@@ -104,7 +110,7 @@ export const objectTraps: ProxyHandler<ProxyState> = {
+ 		if (prop === DRAFT_STATE) return state
+ 
+ 		const source = latest(state)
+-		if (!has(source, prop)) {
++		if (!has(source, prop, state.type_)) {
+ 			// non-existing or non-own property...
+ 			return readPropFromProto(state, source, prop)
+ 		}
+@@ -116,7 +122,11 @@ export const objectTraps: ProxyHandler<ProxyState> = {
+ 		// Assigned values are never drafted. This catches any drafts we created, too.
+ 		if (value === peek(state.base_, prop)) {
+ 			prepareCopy(state)
+-			return (state.copy_![prop as any] = createProxy(value, state))
++			// Ensure array keys are always numbers
++			const childKey = state.type_ === ArchType.Array ? +(prop as string) : prop
++			const childDraft = createProxy(state.scope_, value, state, childKey)
++
++			return (state.copy_![childKey] = childDraft)
+ 		}
+ 		return value
+ 	},
+@@ -146,10 +156,13 @@ export const objectTraps: ProxyHandler<ProxyState> = {
+ 			const currentState: ProxyObjectState = current?.[DRAFT_STATE]
+ 			if (currentState && currentState.base_ === value) {
+ 				state.copy_![prop] = value
+-				state.assigned_[prop] = false
++				state.assigned_!.set(prop, false)
+ 				return true
+ 			}
+-			if (is(value, current) && (value !== undefined || has(state.base_, prop)))
++			if (
++				is(value, current) &&
++				(value !== undefined || has(state.base_, prop, state.type_))
++			)
+ 				return true
+ 			prepareCopy(state)
+ 			markChanged(state)
+@@ -166,18 +179,20 @@ export const objectTraps: ProxyHandler<ProxyState> = {
+ 
+ 		// @ts-ignore
+ 		state.copy_![prop] = value
+-		state.assigned_[prop] = true
++		state.assigned_!.set(prop, true)
++
++		handleCrossReference(state, prop, value)
+ 		return true
+ 	},
+ 	deleteProperty(state, prop: string) {
++		prepareCopy(state)
+ 		// The `undefined` check is a fast path for pre-existing keys.
+ 		if (peek(state.base_, prop) !== undefined || prop in state.base_) {
+-			state.assigned_[prop] = false
+-			prepareCopy(state)
++			state.assigned_!.set(prop, false)
+ 			markChanged(state)
+ 		} else {
+ 			// if an originally not assigned property was deleted
+-			delete state.assigned_[prop]
++			state.assigned_!.delete(prop)
+ 		}
+ 		if (state.copy_) {
+ 			delete state.copy_[prop]
+@@ -191,10 +206,10 @@ export const objectTraps: ProxyHandler<ProxyState> = {
+ 		const desc = Reflect.getOwnPropertyDescriptor(owner, prop)
+ 		if (!desc) return desc
+ 		return {
+-			writable: true,
+-			configurable: state.type_ !== ArchType.Array || prop !== "length",
+-			enumerable: desc.enumerable,
+-			value: owner[prop]
++			[WRITABLE]: true,
++			[CONFIGURABLE]: state.type_ !== ArchType.Array || prop !== "length",
++			[ENUMERABLE]: desc[ENUMERABLE],
++			[VALUE]: owner[prop]
+ 		}
+ 	},
+ 	defineProperty() {
+@@ -216,8 +231,9 @@ const arrayTraps: ProxyHandler<[ProxyArrayState]> = {}
+ each(objectTraps, (key, fn) => {
+ 	// @ts-ignore
+ 	arrayTraps[key] = function() {
+-		arguments[0] = arguments[0][0]
+-		return fn.apply(this, arguments)
++		const args = arguments
++		args[0] = args[0][0]
++		return fn.apply(this, args)
+ 	}
+ })
+ arrayTraps.deleteProperty = function(state, prop) {
+@@ -246,8 +262,8 @@ function peek(draft: Drafted, prop: PropertyKey) {
+ function readPropFromProto(state: ImmerState, source: any, prop: PropertyKey) {
+ 	const desc = getDescriptorFromProto(source, prop)
+ 	return desc
+-		? `value` in desc
+-			? desc.value
++		? VALUE in desc
++			? desc[VALUE]
+ 			: // This is a very special case, if the prop is a getter defined by the
+ 			  // prototype, we should invoke it with the draft as context!
+ 			  desc.get?.call(state.draft_)
+@@ -278,12 +294,11 @@ export function markChanged(state: ImmerState) {
+ 	}
+ }
+ 
+-export function prepareCopy(state: {
+-	base_: any
+-	copy_: any
+-	scope_: ImmerScope
+-}) {
++export function prepareCopy(state: ImmerState) {
+ 	if (!state.copy_) {
++		// Actually create the `assigned_` map now that we
++		// know this is a modified draft.
++		state.assigned_ = new Map()
+ 		state.copy_ = shallowCopy(
+ 			state.base_,
+ 			state.scope_.immer_.useStrictShallowCopy_
+diff --git a/src/core/scope.ts b/src/core/scope.ts
+index 65eb5ee..d1c26e4 100644
+--- a/src/core/scope.ts
++++ b/src/core/scope.ts
+@@ -6,7 +6,12 @@ import {
+ 	DRAFT_STATE,
+ 	ImmerState,
+ 	ArchType,
+-	getPlugin
++	getPlugin,
++	PatchesPlugin,
++	MapSetPlugin,
++	isPluginLoaded,
++	PluginMapSet,
++	PluginPatches
+ } from "../internal"
+ 
+ /** Each scope represents a `produce` call. */
+@@ -14,41 +19,46 @@ import {
+ export interface ImmerScope {
+ 	patches_?: Patch[]
+ 	inversePatches_?: Patch[]
++	patchPlugin_?: PatchesPlugin
++	mapSetPlugin_?: MapSetPlugin
+ 	canAutoFreeze_: boolean
+ 	drafts_: any[]
+ 	parent_?: ImmerScope
+ 	patchListener_?: PatchListener
+ 	immer_: Immer
+ 	unfinalizedDrafts_: number
++	handledSet_: Set<any>
++	processedForPatches_: Set<any>
+ }
+ 
+ let currentScope: ImmerScope | undefined
+ 
+-export function getCurrentScope() {
+-	return currentScope!
+-}
++export let getCurrentScope = () => currentScope!
+ 
+-function createScope(
++let createScope = (
+ 	parent_: ImmerScope | undefined,
+ 	immer_: Immer
+-): ImmerScope {
+-	return {
+-		drafts_: [],
+-		parent_,
+-		immer_,
+-		// Whenever the modified draft contains a draft from another scope, we
+-		// need to prevent auto-freezing so the unowned draft can be finalized.
+-		canAutoFreeze_: true,
+-		unfinalizedDrafts_: 0
+-	}
+-}
++): ImmerScope => ({
++	drafts_: [],
++	parent_,
++	immer_,
++	// Whenever the modified draft contains a draft from another scope, we
++	// need to prevent auto-freezing so the unowned draft can be finalized.
++	canAutoFreeze_: true,
++	unfinalizedDrafts_: 0,
++	handledSet_: new Set(),
++	processedForPatches_: new Set(),
++	mapSetPlugin_: isPluginLoaded(PluginMapSet)
++		? getPlugin(PluginMapSet)
++		: undefined
++})
+ 
+ export function usePatchesInScope(
+ 	scope: ImmerScope,
+ 	patchListener?: PatchListener
+ ) {
+ 	if (patchListener) {
+-		getPlugin("Patches") // assert we have the plugin
++		scope.patchPlugin_ = getPlugin(PluginPatches) // assert we have the plugin
+ 		scope.patches_ = []
+ 		scope.inversePatches_ = []
+ 		scope.patchListener_ = patchListener
+@@ -68,9 +78,8 @@ export function leaveScope(scope: ImmerScope) {
+ 	}
+ }
+ 
+-export function enterScope(immer: Immer) {
+-	return (currentScope = createScope(currentScope, immer))
+-}
++export let enterScope = (immer: Immer) =>
++	(currentScope = createScope(currentScope, immer))
+ 
+ function revokeDraft(draft: Drafted) {
+ 	const state: ImmerState = draft[DRAFT_STATE]
+diff --git a/src/immer.ts b/src/immer.ts
+index 2d7b187..615dff7 100644
+--- a/src/immer.ts
++++ b/src/immer.ts
+@@ -110,18 +110,14 @@ export const finishDraft = /* @__PURE__ */ immer.finishDraft.bind(immer)
+  *
+  * @param value
+  */
+-export function castDraft<T>(value: T): Draft<T> {
+-	return value as any
+-}
++export let castDraft = <T>(value: T): Draft<T> => value as any
+ 
+ /**
+  * This function is actually a no-op, but can be used to cast a mutable type
+  * to an immutable type and make TypeScript happy
+  * @param value
+  */
+-export function castImmutable<T>(value: T): Immutable<T> {
+-	return value as any
+-}
++export let castImmutable = <T>(value: T): Immutable<T> => value as any
+ 
+ export {Immer}
+ 
+diff --git a/src/plugins/mapset.ts b/src/plugins/mapset.ts
+index edc628a..9afa74e 100644
+--- a/src/plugins/mapset.ts
++++ b/src/plugins/mapset.ts
+@@ -14,7 +14,9 @@ import {
+ 	markChanged,
+ 	die,
+ 	ArchType,
+-	each
++	each,
++	getValue,
++	PluginMapSet
+ } from "../internal"
+ 
+ export function enableMapSet() {
+@@ -34,7 +36,8 @@ export function enableMapSet() {
+ 				base_: target,
+ 				draft_: this as any,
+ 				isManual_: false,
+-				revoked_: false
++				revoked_: false,
++				callbacks_: []
+ 			}
+ 		}
+ 
+@@ -109,7 +112,7 @@ export function enableMapSet() {
+ 				return value // either already drafted or reassigned
+ 			}
+ 			// despite what it looks, this creates a draft only once, see above condition
+-			const draft = createProxy(value, state)
++			const draft = createProxy(state.scope_, value, state, key)
+ 			prepareMapCopy(state)
+ 			state.copy_!.set(key, draft)
+ 			return draft
+@@ -158,9 +161,13 @@ export function enableMapSet() {
+ 		}
+ 	}
+ 
+-	function proxyMap_<T extends AnyMap>(target: T, parent?: ImmerState): T {
++	function proxyMap_<T extends AnyMap>(
++		target: T,
++		parent?: ImmerState
++	): [T, MapState] {
+ 		// @ts-ignore
+-		return new DraftMap(target, parent)
++		const map = new DraftMap(target, parent)
++		return [map as any, map[DRAFT_STATE]]
+ 	}
+ 
+ 	function prepareMapCopy(state: MapState) {
+@@ -185,7 +192,9 @@ export function enableMapSet() {
+ 				draft_: this,
+ 				drafts_: new Map(),
+ 				revoked_: false,
+-				isManual_: false
++				isManual_: false,
++				assigned_: undefined,
++				callbacks_: []
+ 			}
+ 		}
+ 
+@@ -275,9 +284,13 @@ export function enableMapSet() {
+ 			}
+ 		}
+ 	}
+-	function proxySet_<T extends AnySet>(target: T, parent?: ImmerState): T {
++	function proxySet_<T extends AnySet>(
++		target: T,
++		parent?: ImmerState
++	): [T, SetState] {
+ 		// @ts-ignore
+-		return new DraftSet(target, parent)
++		const set = new DraftSet(target, parent)
++		return [set as any, set[DRAFT_STATE]]
+ 	}
+ 
+ 	function prepareSetCopy(state: SetState) {
+@@ -286,7 +299,7 @@ export function enableMapSet() {
+ 			state.copy_ = new Set()
+ 			state.base_.forEach(value => {
+ 				if (isDraftable(value)) {
+-					const draft = createProxy(value, state)
++					const draft = createProxy(state.scope_, value, state, value)
+ 					state.drafts_.set(value, draft)
+ 					state.copy_!.add(draft)
+ 				} else {
+@@ -300,5 +313,17 @@ export function enableMapSet() {
+ 		if (state.revoked_) die(3, JSON.stringify(latest(state)))
+ 	}
+ 
+-	loadPlugin("MapSet", {proxyMap_, proxySet_})
++	function fixSetContents(target: ImmerState) {
++		// For sets we clone before iterating, otherwise we can get in endless loop due to modifying during iteration, see #628
++		// To preserve insertion order in all cases we then clear the set
++		if (target.type_ === ArchType.Set && target.copy_) {
++			const copy = new Set(target.copy_)
++			target.copy_.clear()
++			copy.forEach(value => {
++				target.copy_!.add(getValue(value))
++			})
++		}
++	}
++
++	loadPlugin(PluginMapSet, {proxyMap_, proxySet_, fixSetContents})
+ }
+diff --git a/src/plugins/patches.ts b/src/plugins/patches.ts
+index 934e0b9..df556d7 100644
+--- a/src/plugins/patches.ts
++++ b/src/plugins/patches.ts
+@@ -20,7 +20,16 @@ import {
+ 	isDraft,
+ 	isDraftable,
+ 	NOTHING,
+-	errors
++	errors,
++	DRAFT_STATE,
++	getProxyDraft,
++	ImmerScope,
++	isObjectish,
++	isFunction,
++	CONSTRUCTOR,
++	PluginPatches,
++	isArray,
++	PROTOTYPE
+ } from "../internal"
+ 
+ export function enablePatches() {
+@@ -38,6 +47,84 @@ export function enablePatches() {
+ 		)
+ 	}
+ 
++	function getPath(state: ImmerState, path: PatchPath = []): PatchPath | null {
++		// Step 1: Check if state has a stored key
++		if ("key_" in state && state.key_ !== undefined) {
++			// Step 2: Validate the key is still valid in parent
++
++			const parentCopy = state.parent_!.copy_ ?? state.parent_!.base_
++			const proxyDraft = getProxyDraft(get(parentCopy, state.key_!))
++			const valueAtKey = get(parentCopy, state.key_!)
++
++			if (valueAtKey === undefined) {
++				return null
++			}
++
++			// Check if the value at the key is still related to this draft
++			// It should be either the draft itself, the base, or the copy
++			if (
++				valueAtKey !== state.draft_ &&
++				valueAtKey !== state.base_ &&
++				valueAtKey !== state.copy_
++			) {
++				return null // Value was replaced with something else
++			}
++			if (proxyDraft != null && proxyDraft.base_ !== state.base_) {
++				return null // Different draft
++			}
++
++			// Step 3: Handle Set case specially
++			const isSet = state.parent_!.type_ === ArchType.Set
++			let key: string | number
++
++			if (isSet) {
++				// For Sets, find the index in the drafts_ map
++				const setParent = state.parent_ as SetState
++				key = Array.from(setParent.drafts_.keys()).indexOf(state.key_)
++			} else {
++				key = state.key_ as string | number
++			}
++
++			// Step 4: Validate key still exists in parent
++			if (!((isSet && parentCopy.size > key) || has(parentCopy, key))) {
++				return null // Key deleted
++			}
++
++			// Step 5: Add key to path
++			path.push(key)
++		}
++
++		// Step 6: Recurse to parent if exists
++		if (state.parent_) {
++			return getPath(state.parent_, path)
++		}
++
++		// Step 7: At root - reverse path and validate
++		path.reverse()
++
++		try {
++			// Validate path can be resolved from ROOT
++			resolvePath(state.copy_, path)
++		} catch (e) {
++			return null // Path invalid
++		}
++
++		return path
++	}
++
++	// NEW: Add resolvePath helper function
++	function resolvePath(base: any, path: PatchPath): any {
++		let current = base
++		for (let i = 0; i < path.length - 1; i++) {
++			const key = path[i]
++			current = get(current, key)
++			if (!isObjectish(current) || current === null) {
++				throw new Error(`Cannot resolve path at '${path.join("/")}'`)
++			}
++		}
++		return current
++	}
++
+ 	const REPLACE = "replace"
+ 	const ADD = "add"
+ 	const REMOVE = "remove"
+@@ -45,26 +132,38 @@ export function enablePatches() {
+ 	function generatePatches_(
+ 		state: ImmerState,
+ 		basePath: PatchPath,
+-		patches: Patch[],
+-		inversePatches: Patch[]
++		scope: ImmerScope
+ 	): void {
++		if (state.scope_.processedForPatches_.has(state)) {
++			return
++		}
++
++		state.scope_.processedForPatches_.add(state)
++
++		const {patches_, inversePatches_} = scope
++
+ 		switch (state.type_) {
+ 			case ArchType.Object:
+ 			case ArchType.Map:
+ 				return generatePatchesFromAssigned(
+ 					state,
+ 					basePath,
+-					patches,
+-					inversePatches
++					patches_!,
++					inversePatches_!
+ 				)
+ 			case ArchType.Array:
+-				return generateArrayPatches(state, basePath, patches, inversePatches)
++				return generateArrayPatches(
++					state,
++					basePath,
++					patches_!,
++					inversePatches_!
++				)
+ 			case ArchType.Set:
+ 				return generateSetPatches(
+ 					(state as any) as SetState,
+ 					basePath,
+-					patches,
+-					inversePatches
++					patches_!,
++					inversePatches_!
+ 				)
+ 		}
+ 	}
+@@ -87,19 +186,26 @@ export function enablePatches() {
+ 
+ 		// Process replaced indices.
+ 		for (let i = 0; i < base_.length; i++) {
+-			if (assigned_[i] && copy_[i] !== base_[i]) {
++			const copiedItem = copy_[i]
++			const baseItem = base_[i]
++			if (assigned_?.get(i.toString()) && copiedItem !== baseItem) {
++				const childState = copiedItem?.[DRAFT_STATE]
++				if (childState && childState.modified_) {
++					// Skip - let the child generate its own patches
++					continue
++				}
+ 				const path = basePath.concat([i])
+ 				patches.push({
+ 					op: REPLACE,
+ 					path,
+ 					// Need to maybe clone it, as it can in fact be the original value
+ 					// due to the base/copy inversion at the start of this function
+-					value: clonePatchValueIfNeeded(copy_[i])
++					value: clonePatchValueIfNeeded(copiedItem)
+ 				})
+ 				inversePatches.push({
+ 					op: REPLACE,
+ 					path,
+-					value: clonePatchValueIfNeeded(base_[i])
++					value: clonePatchValueIfNeeded(baseItem)
+ 				})
+ 			}
+ 		}
+@@ -131,14 +237,18 @@ export function enablePatches() {
+ 		patches: Patch[],
+ 		inversePatches: Patch[]
+ 	) {
+-		const {base_, copy_} = state
++		const {base_, copy_, type_} = state
+ 		each(state.assigned_!, (key, assignedValue) => {
+-			const origValue = get(base_, key)
+-			const value = get(copy_!, key)
++			const origValue = get(base_, key, type_)
++			const value = get(copy_!, key, type_)
+ 			const op = !assignedValue ? REMOVE : has(base_, key) ? REPLACE : ADD
+ 			if (origValue === value && op === REPLACE) return
+ 			const path = basePath.concat(key as any)
+-			patches.push(op === REMOVE ? {op, path} : {op, path, value})
++			patches.push(
++				op === REMOVE
++					? {op, path}
++					: {op, path, value: clonePatchValueIfNeeded(value)}
++			)
+ 			inversePatches.push(
+ 				op === ADD
+ 					? {op: REMOVE, path}
+@@ -196,15 +306,15 @@ export function enablePatches() {
+ 	function generateReplacementPatches_(
+ 		baseValue: any,
+ 		replacement: any,
+-		patches: Patch[],
+-		inversePatches: Patch[]
++		scope: ImmerScope
+ 	): void {
+-		patches.push({
++		const {patches_, inversePatches_} = scope
++		patches_!.push({
+ 			op: REPLACE,
+ 			path: [],
+ 			value: replacement === NOTHING ? undefined : replacement
+ 		})
+-		inversePatches.push({
++		inversePatches_!.push({
+ 			op: REPLACE,
+ 			path: [],
+ 			value: baseValue
+@@ -226,13 +336,12 @@ export function enablePatches() {
+ 				// See #738, avoid prototype pollution
+ 				if (
+ 					(parentType === ArchType.Object || parentType === ArchType.Array) &&
+-					(p === "__proto__" || p === "constructor")
++					(p === "__proto__" || p === CONSTRUCTOR)
+ 				)
+ 					die(errorOffset + 3)
+-				if (typeof base === "function" && p === "prototype")
+-					die(errorOffset + 3)
++				if (isFunction(base) && p === PROTOTYPE) die(errorOffset + 3)
+ 				base = get(base, p)
+-				if (typeof base !== "object") die(errorOffset + 2, path.join("/"))
++				if (!isObjectish(base)) die(errorOffset + 2, path.join("/"))
+ 			}
+ 
+ 			const type = getArchtype(base)
+@@ -291,7 +400,7 @@ export function enablePatches() {
+ 	function deepClonePatchValue<T>(obj: T): T
+ 	function deepClonePatchValue(obj: any) {
+ 		if (!isDraftable(obj)) return obj
+-		if (Array.isArray(obj)) return obj.map(deepClonePatchValue)
++		if (isArray(obj)) return obj.map(deepClonePatchValue)
+ 		if (isMap(obj))
+ 			return new Map(
+ 				Array.from(obj.entries()).map(([k, v]) => [k, deepClonePatchValue(v)])
+@@ -309,9 +418,10 @@ export function enablePatches() {
+ 		} else return obj
+ 	}
+ 
+-	loadPlugin("Patches", {
++	loadPlugin(PluginPatches, {
+ 		applyPatches_,
+ 		generatePatches_,
+-		generateReplacementPatches_
++		generateReplacementPatches_,
++		getPath
+ 	})
+ }
+diff --git a/src/types/types-internal.ts b/src/types/types-internal.ts
+index 5c50625..8ff912b 100644
+--- a/src/types/types-internal.ts
++++ b/src/types/types-internal.ts
+@@ -4,7 +4,9 @@ import {
+ 	ProxyObjectState,
+ 	ProxyArrayState,
+ 	MapState,
+-	DRAFT_STATE
++	DRAFT_STATE,
++	Patch,
++	PatchPath
+ } from "../internal"
+ 
+ export type Objectish = AnyObject | AnyArray | AnyMap | AnySet
+@@ -28,6 +30,10 @@ export interface ImmerBaseState {
+ 	modified_: boolean
+ 	finalized_: boolean
+ 	isManual_: boolean
++	assigned_: Map<any, boolean> | undefined
++	key_?: string | number | symbol
++	callbacks_: ((scope: ImmerScope) => void)[]
++	draftLocations_?: Map<any, (string | number | symbol)[]>
+ }
+ 
+ export type ImmerState =
+@@ -40,3 +46,10 @@ export type ImmerState =
+ export type Drafted<Base = any, T extends ImmerState = ImmerState> = {
+ 	[DRAFT_STATE]: T
+ } & Base
++
++export type GeneratePatches = (
++	state: ImmerState,
++	basePath: PatchPath,
++	patches: Patch[],
++	inversePatches: Patch[]
++) => void
+diff --git a/src/utils/common.ts b/src/utils/common.ts
+index 7bb5f93..6fccdcc 100644
+--- a/src/utils/common.ts
++++ b/src/utils/common.ts
+@@ -12,13 +12,21 @@ import {
+ 	StrictMode
+ } from "../internal"
+ 
+-export const getPrototypeOf = Object.getPrototypeOf
++const O = Object
++
++export const getPrototypeOf = O.getPrototypeOf
++
++export const CONSTRUCTOR = "constructor"
++export const PROTOTYPE = "prototype"
++
++export const CONFIGURABLE = "configurable"
++export const ENUMERABLE = "enumerable"
++export const WRITABLE = "writable"
++export const VALUE = "value"
+ 
+ /** Returns true if the given value is an Immer draft */
+ /*#__PURE__*/
+-export function isDraft(value: any): boolean {
+-	return !!value && !!value[DRAFT_STATE]
+-}
++export let isDraft = (value: any): boolean => !!value && !!value[DRAFT_STATE]
+ 
+ /** Returns true if the given value can be drafted by Immer */
+ /*#__PURE__*/
+@@ -26,27 +34,26 @@ export function isDraftable(value: any): boolean {
+ 	if (!value) return false
+ 	return (
+ 		isPlainObject(value) ||
+-		Array.isArray(value) ||
++		isArray(value) ||
+ 		!!value[DRAFTABLE] ||
+-		!!value.constructor?.[DRAFTABLE] ||
++		!!value[CONSTRUCTOR]?.[DRAFTABLE] ||
+ 		isMap(value) ||
+ 		isSet(value)
+ 	)
+ }
+ 
+-const objectCtorString = Object.prototype.constructor.toString()
++const objectCtorString = O[PROTOTYPE][CONSTRUCTOR].toString()
+ const cachedCtorStrings = new WeakMap()
+ /*#__PURE__*/
+ export function isPlainObject(value: any): boolean {
+-	if (!value || typeof value !== "object") return false
+-	const proto = Object.getPrototypeOf(value)
+-	if (proto === null || proto === Object.prototype) return true
++	if (!value || !isObjectish(value)) return false
++	const proto = getPrototypeOf(value)
++	if (proto === null || proto === O[PROTOTYPE]) return true
+ 
+-	const Ctor =
+-		Object.hasOwnProperty.call(proto, "constructor") && proto.constructor
++	const Ctor = O.hasOwnProperty.call(proto, CONSTRUCTOR) && proto[CONSTRUCTOR]
+ 	if (Ctor === Object) return true
+ 
+-	if (typeof Ctor !== "function") return false
++	if (!isFunction(Ctor)) return false
+ 
+ 	let ctorString = cachedCtorStrings.get(Ctor)
+ 	if (ctorString === undefined) {
+@@ -83,7 +90,7 @@ export function each(obj: any, iter: any, strict: boolean = true) {
+ 	if (getArchtype(obj) === ArchType.Object) {
+ 		// If strict, we do a full iteration including symbols and non-enumerable properties
+ 		// Otherwise, we only iterate enumerable string properties for performance
+-		const keys = strict ? Reflect.ownKeys(obj) : Object.keys(obj)
++		const keys = strict ? Reflect.ownKeys(obj) : O.keys(obj)
+ 		keys.forEach(key => {
+ 			iter(key, obj[key], obj)
+ 		})
+@@ -97,7 +104,7 @@ export function getArchtype(thing: any): ArchType {
+ 	const state: undefined | ImmerState = thing[DRAFT_STATE]
+ 	return state
+ 		? state.type_
+-		: Array.isArray(thing)
++		: isArray(thing)
+ 		? ArchType.Array
+ 		: isMap(thing)
+ 		? ArchType.Map
+@@ -107,23 +114,33 @@ export function getArchtype(thing: any): ArchType {
+ }
+ 
+ /*#__PURE__*/
+-export function has(thing: any, prop: PropertyKey): boolean {
+-	return getArchtype(thing) === ArchType.Map
++export let has = (
++	thing: any,
++	prop: PropertyKey,
++	type = getArchtype(thing)
++): boolean =>
++	type === ArchType.Map
+ 		? thing.has(prop)
+-		: Object.prototype.hasOwnProperty.call(thing, prop)
+-}
++		: O[PROTOTYPE].hasOwnProperty.call(thing, prop)
+ 
+ /*#__PURE__*/
+-export function get(thing: AnyMap | AnyObject, prop: PropertyKey): any {
++export let get = (
++	thing: AnyMap | AnyObject,
++	prop: PropertyKey,
++	type = getArchtype(thing)
++): any =>
+ 	// @ts-ignore
+-	return getArchtype(thing) === ArchType.Map ? thing.get(prop) : thing[prop]
+-}
++	type === ArchType.Map ? thing.get(prop) : thing[prop]
+ 
+ /*#__PURE__*/
+-export function set(thing: any, propOrOldValue: PropertyKey, value: any) {
+-	const t = getArchtype(thing)
+-	if (t === ArchType.Map) thing.set(propOrOldValue, value)
+-	else if (t === ArchType.Set) {
++export let set = (
++	thing: any,
++	propOrOldValue: PropertyKey,
++	value: any,
++	type = getArchtype(thing)
++) => {
++	if (type === ArchType.Map) thing.set(propOrOldValue, value)
++	else if (type === ArchType.Set) {
+ 		thing.add(value)
+ 	} else thing[propOrOldValue] = value
+ }
+@@ -138,20 +155,38 @@ export function is(x: any, y: any): boolean {
+ 	}
+ }
+ 
++export let isArray = Array.isArray
++
+ /*#__PURE__*/
+-export function isMap(target: any): target is AnyMap {
+-	return target instanceof Map
+-}
++export let isMap = (target: any): target is AnyMap => target instanceof Map
+ 
+ /*#__PURE__*/
+-export function isSet(target: any): target is AnySet {
+-	return target instanceof Set
++export let isSet = (target: any): target is AnySet => target instanceof Set
++
++export let isObjectish = (target: any) => typeof target === "object"
++
++export let isFunction = (target: any): target is Function =>
++	typeof target === "function"
++
++export let isBoolean = (target: any): target is boolean =>
++	typeof target === "boolean"
++
++export let getProxyDraft = <T extends any>(value: T): ImmerState | null => {
++	if (!isObjectish(value)) return null
++	return (value as {[DRAFT_STATE]: any})?.[DRAFT_STATE]
+ }
++
+ /*#__PURE__*/
+-export function latest(state: ImmerState): any {
+-	return state.copy_ || state.base_
++export let latest = (state: ImmerState): any => state.copy_ || state.base_
++
++export let getValue = <T extends object>(value: T): T => {
++	const proxyDraft = getProxyDraft(value)
++	return proxyDraft ? proxyDraft.copy_ ?? proxyDraft.base_ : value
+ }
+ 
++export let getFinalValue = (state: ImmerState): any =>
++	state.modified_ ? state.copy_ : state.base_
++
+ /*#__PURE__*/
+ export function shallowCopy(base: any, strict: StrictMode) {
+ 	if (isMap(base)) {
+@@ -160,42 +195,42 @@ export function shallowCopy(base: any, strict: StrictMode) {
+ 	if (isSet(base)) {
+ 		return new Set(base)
+ 	}
+-	if (Array.isArray(base)) return Array.prototype.slice.call(base)
++	if (isArray(base)) return Array[PROTOTYPE].slice.call(base)
+ 
+ 	const isPlain = isPlainObject(base)
+ 
+ 	if (strict === true || (strict === "class_only" && !isPlain)) {
+ 		// Perform a strict copy
+-		const descriptors = Object.getOwnPropertyDescriptors(base)
++		const descriptors = O.getOwnPropertyDescriptors(base)
+ 		delete descriptors[DRAFT_STATE as any]
+ 		let keys = Reflect.ownKeys(descriptors)
+ 		for (let i = 0; i < keys.length; i++) {
+ 			const key: any = keys[i]
+ 			const desc = descriptors[key]
+-			if (desc.writable === false) {
+-				desc.writable = true
+-				desc.configurable = true
++			if (desc[WRITABLE] === false) {
++				desc[WRITABLE] = true
++				desc[CONFIGURABLE] = true
+ 			}
+ 			// like object.assign, we will read any _own_, get/set accessors. This helps in dealing
+ 			// with libraries that trap values, like mobx or vue
+ 			// unlike object.assign, non-enumerables will be copied as well
+ 			if (desc.get || desc.set)
+ 				descriptors[key] = {
+-					configurable: true,
+-					writable: true, // could live with !!desc.set as well here...
+-					enumerable: desc.enumerable,
+-					value: base[key]
++					[CONFIGURABLE]: true,
++					[WRITABLE]: true, // could live with !!desc.set as well here...
++					[ENUMERABLE]: desc[ENUMERABLE],
++					[VALUE]: base[key]
+ 				}
+ 		}
+-		return Object.create(getPrototypeOf(base), descriptors)
++		return O.create(getPrototypeOf(base), descriptors)
+ 	} else {
+ 		// perform a sloppy copy
+ 		const proto = getPrototypeOf(base)
+ 		if (proto !== null && isPlain) {
+ 			return {...base} // assumption: better inner class optimization than the assign below
+ 		}
+-		const obj = Object.create(proto)
+-		return Object.assign(obj, base)
++		const obj = O.create(proto)
++		return O.assign(obj, base)
+ 	}
+ }
+ 
+@@ -208,20 +243,26 @@ export function shallowCopy(base: any, strict: StrictMode) {
+  */
+ export function freeze<T>(obj: T, deep?: boolean): T
+ export function freeze<T>(obj: any, deep: boolean = false): T {
+-	if (isFrozen(obj) || isDraft(obj) || !isDraftable(obj)) return obj
++	if (isFrozen(obj) || isDraft(obj)) return obj
+ 	if (getArchtype(obj) > 1 /* Map or Set */) {
+-		Object.defineProperties(obj, {
++		O.defineProperties(obj, {
+ 			set: dontMutateMethodOverride,
+ 			add: dontMutateMethodOverride,
+ 			clear: dontMutateMethodOverride,
+ 			delete: dontMutateMethodOverride
+ 		})
+ 	}
+-	Object.freeze(obj)
++	O.freeze(obj)
+ 	if (deep)
+ 		// See #590, don't recurse into non-enumerable / Symbol properties when freezing
+ 		// So use Object.values (only string-like, enumerables) instead of each()
+-		Object.values(obj).forEach(value => freeze(value, true))
++		each(
++			obj,
++			(_key, value) => {
++				freeze(value, true)
++			},
++			false
++		)
+ 	return obj
+ }
+ 
+@@ -230,11 +271,11 @@ function dontMutateFrozenCollections() {
+ }
+ 
+ const dontMutateMethodOverride = {
+-	value: dontMutateFrozenCollections
++	[VALUE]: dontMutateFrozenCollections
+ }
+ 
+ export function isFrozen(obj: any): boolean {
+ 	// Fast path: primitives and null/undefined are always "frozen"
+-	if (obj === null || typeof obj !== "object") return true
+-	return Object.isFrozen(obj)
++	if (obj === null || !isObjectish(obj)) return true
++	return O.isFrozen(obj)
+ }
+diff --git a/src/utils/errors.ts b/src/utils/errors.ts
+index f74d1bd..514f596 100644
+--- a/src/utils/errors.ts
++++ b/src/utils/errors.ts
+@@ -1,3 +1,5 @@
++import {isFunction} from "../internal"
++
+ export const errors =
+ 	process.env.NODE_ENV !== "production"
+ 		? [
+@@ -39,7 +41,7 @@ export const errors =
+ export function die(error: number, ...args: any[]): never {
+ 	if (process.env.NODE_ENV !== "production") {
+ 		const e = errors[error]
+-		const msg = typeof e === "function" ? e.apply(null, args as any) : e
++		const msg = isFunction(e) ? e.apply(null, args as any) : e
+ 		throw new Error(`[Immer] ${msg}`)
+ 	}
+ 	throw new Error(
+diff --git a/src/utils/plugins.ts b/src/utils/plugins.ts
+index fede08f..9165634 100644
+--- a/src/utils/plugins.ts
++++ b/src/utils/plugins.ts
+@@ -6,30 +6,38 @@ import {
+ 	AnyMap,
+ 	AnySet,
+ 	ArchType,
+-	die
++	die,
++	ImmerScope
+ } from "../internal"
+ 
++export const PluginMapSet = "MapSet"
++export const PluginPatches = "Patches"
++
++export type PatchesPlugin = {
++	generatePatches_(
++		state: ImmerState,
++		basePath: PatchPath,
++		rootScope: ImmerScope
++	): void
++	generateReplacementPatches_(
++		base: any,
++		replacement: any,
++		rootScope: ImmerScope
++	): void
++	applyPatches_<T>(draft: T, patches: readonly Patch[]): T
++	getPath: (state: ImmerState) => PatchPath | null
++}
++
++export type MapSetPlugin = {
++	proxyMap_<T extends AnyMap>(target: T, parent?: ImmerState): [T, ImmerState]
++	proxySet_<T extends AnySet>(target: T, parent?: ImmerState): [T, ImmerState]
++	fixSetContents: (state: ImmerState) => void
++}
++
+ /** Plugin utilities */
+ const plugins: {
+-	Patches?: {
+-		generatePatches_(
+-			state: ImmerState,
+-			basePath: PatchPath,
+-			patches: Patch[],
+-			inversePatches: Patch[]
+-		): void
+-		generateReplacementPatches_(
+-			base: any,
+-			replacement: any,
+-			patches: Patch[],
+-			inversePatches: Patch[]
+-		): void
+-		applyPatches_<T>(draft: T, patches: readonly Patch[]): T
+-	}
+-	MapSet?: {
+-		proxyMap_<T extends AnyMap>(target: T, parent?: ImmerState): T
+-		proxySet_<T extends AnySet>(target: T, parent?: ImmerState): T
+-	}
++	Patches?: PatchesPlugin
++	MapSet?: MapSetPlugin
+ } = {}
+ 
+ type Plugins = typeof plugins
+@@ -45,6 +53,9 @@ export function getPlugin<K extends keyof Plugins>(
+ 	return plugin
+ }
+ 
++export let isPluginLoaded = <K extends keyof Plugins>(pluginKey: K): boolean =>
++	!!plugins[pluginKey]
++
+ export function loadPlugin<K extends keyof Plugins>(
+ 	pluginKey: K,
+ 	implementation: Plugins[K]
+@@ -56,7 +67,6 @@ export function loadPlugin<K extends keyof Plugins>(
+ export interface MapState extends ImmerBaseState {
+ 	type_: ArchType.Map
+ 	copy_: AnyMap | undefined
+-	assigned_: Map<any, boolean> | undefined
+ 	base_: AnyMap
+ 	revoked_: boolean
+ 	draft_: Drafted<AnyMap, MapState>

@@ -1,0 +1,311 @@
+diff --git a/src/request.test.ts b/src/request.test.ts
+index 7a063deb..bcd3a756 100644
+--- a/src/request.test.ts
++++ b/src/request.test.ts
+@@ -1,4 +1,5 @@
+-import { HonoRequest } from './request'
++import { HTTPException } from './http-exception'
++import { cloneRawRequest, HonoRequest } from './request'
+ import type { RouterRoute } from './types'
+ 
+ type RecursiveRecord<K extends string, T> = {
+@@ -378,3 +379,126 @@ describe('Body methods with caching', () => {
+     })
+   })
+ })
++
++describe('cloneRawRequest', () => {
++  test('clones unconsumed request object', async () => {
++    const req = new HonoRequest(
++      new Request('http://localhost', {
++        method: 'POST',
++        headers: {
++          'Content-Type': 'application/json',
++          'X-Custom-Header': 'custom-value',
++        },
++        body: text,
++        cache: 'no-cache',
++        credentials: 'include',
++        integrity: 'sha256-test',
++        mode: 'cors',
++        redirect: 'follow',
++        referrer: 'http://example.com',
++        referrerPolicy: 'origin',
++      })
++    )
++
++    const clonedReq = await cloneRawRequest(req)
++
++    expect(clonedReq.method).toBe('POST')
++    expect(clonedReq.url).toBe('http://localhost/')
++    expect(await clonedReq.text()).toBe(text)
++    expect(clonedReq.headers.get('Content-Type')).toBe('application/json')
++    expect(clonedReq.headers.get('X-Custom-Header')).toBe('custom-value')
++    expect(clonedReq.cache).toBe('no-cache')
++    expect(clonedReq.credentials).toBe('include')
++    expect(clonedReq.integrity).toBe('sha256-test')
++    expect(clonedReq.mode).toBe('cors')
++    expect(clonedReq.redirect).toBe('follow')
++    expect(clonedReq.referrer).toBe('http://example.com/')
++    expect(clonedReq.referrerPolicy).toBe('origin')
++    expect(req.raw, 'cloned request should be a different object reference').not.toBe(clonedReq)
++    expect(req.raw, 'cloned request should contain the same properties').toMatchObject(clonedReq)
++  })
++
++  test('clones consumed request object', async () => {
++    const req = new HonoRequest(
++      new Request('http://localhost', {
++        method: 'POST',
++        headers: {
++          Authorization: 'Bearer token123',
++        },
++        body: text,
++        mode: 'same-origin',
++        credentials: 'same-origin',
++      })
++    )
++    await req.json()
++
++    const clonedReq = await cloneRawRequest(req)
++
++    expect(clonedReq.method).toBe('POST')
++    expect(clonedReq.url).toBe('http://localhost/')
++    expect(await clonedReq.json()).toEqual(json)
++    expect(clonedReq.headers.get('Authorization')).toBe('Bearer token123')
++    expect(clonedReq.mode).toBe('same-origin')
++    expect(clonedReq.credentials).toBe('same-origin')
++    expect(req.raw, 'cloned request should be a different object reference').not.toBe(clonedReq)
++    expect(req.raw, 'cloned request should contain the same properties').toMatchObject(clonedReq)
++  })
++
++  test('clones GET request without body', async () => {
++    const req = new HonoRequest(
++      new Request('http://localhost', {
++        method: 'GET',
++        headers: {
++          'User-Agent': 'test-agent',
++        },
++        cache: 'default',
++        redirect: 'manual',
++        referrerPolicy: 'no-referrer',
++      })
++    )
++
++    const clonedReq = await cloneRawRequest(req)
++
++    expect(clonedReq.method).toBe('GET')
++    expect(clonedReq.url).toBe('http://localhost/')
++    expect(clonedReq.headers.get('User-Agent')).toBe('test-agent')
++    expect(clonedReq.cache).toBe('default')
++    expect(clonedReq.redirect).toBe('manual')
++    expect(clonedReq.referrerPolicy).toBe('no-referrer')
++    expect(req.raw, 'cloned request should be a different object reference').not.toBe(clonedReq)
++    expect(req.raw, 'cloned request should contain the same properties').toMatchObject(clonedReq)
++  })
++
++  test('clones request when raw body was consumed directly without HonoRequest methods', async () => {
++    const req = new HonoRequest(
++      new Request('http://localhost', {
++        method: 'POST',
++        headers: {
++          'Content-Type': 'application/json',
++        },
++        body: text,
++      })
++    )
++
++    // Consume the raw request body directly, bypassing HonoRequest methods
++    // This means bodyCache will be empty
++    await req.raw.text()
++
++    expect(req.raw.bodyUsed).toBe(true)
++    expect(Object.keys(req.bodyCache).length).toBe(0)
++
++    let error: HTTPException | undefined = undefined
++    try {
++      await cloneRawRequest(req)
++    } catch (e) {
++      expect(e).toBeInstanceOf(HTTPException)
++      error = e as HTTPException
++    }
++
++    expect(error).not.toBeUndefined()
++    expect((error as HTTPException).status).toBe(500)
++    expect((error as HTTPException).message).toContain(
++      'Cannot clone request: body was already consumed and not cached'
++    )
++  })
++})
+diff --git a/src/request.ts b/src/request.ts
+index bd78163a..e5691b95 100644
+--- a/src/request.ts
++++ b/src/request.ts
+@@ -1,4 +1,5 @@
+ /* eslint-disable @typescript-eslint/no-explicit-any */
++import { HTTPException } from './http-exception'
+ import { GET_MATCH_RESULT } from './request/constants'
+ import type { Result } from './router'
+ import type {
+@@ -25,6 +26,11 @@ type Body = {
+ }
+ type BodyCache = Partial<Body & { parsedBody: BodyData }>
+ 
++type OptionalRequestInitProperties = 'window' | 'priority'
++type RequiredRequestInit = Required<Omit<RequestInit, OptionalRequestInitProperties>> & {
++  [Key in OptionalRequestInitProperties]?: RequestInit[Key]
++}
++
+ const tryDecodeURIComponent = (str: string) => tryDecode(str, decodeURIComponent_)
+ 
+ export class HonoRequest<P extends string = '/', I extends Input['out'] = {}> {
+@@ -417,3 +423,65 @@ export class HonoRequest<P extends string = '/', I extends Input['out'] = {}> {
+     return this.#matchResult[0].map(([[, route]]) => route)[this.routeIndex].path
+   }
+ }
++
++/**
++ * Clones a HonoRequest's underlying raw Request object.
++ *
++ * This utility handles both consumed and unconsumed request bodies:
++ * - If the request body hasn't been consumed, it uses the native `clone()` method
++ * - If the request body has been consumed, it reconstructs a new Request using cached body data
++ *
++ * This is particularly useful when you need to:
++ * - Process the same request body multiple times
++ * - Pass requests to external services after validation
++ *
++ * @param req - The HonoRequest object to clone
++ * @returns A Promise that resolves to a new Request object with the same properties
++ * @throws {HTTPException} If the request body was consumed directly via `req.raw`
++ *   without using HonoRequest methods (e.g., `req.json()`, `req.text()`), making it
++ *   impossible to reconstruct the body from cache
++ *
++ * @example
++ * ```ts
++ * // Clone after consuming the body (e.g., after validation)
++ * app.post('/forward',
++ *   validator('json', (data) => data),
++ *   async (c) => {
++ *     const validated = c.req.valid('json')
++ *     // Body has been consumed, but cloneRawRequest still works
++ *     const clonedReq = await cloneRawRequest(c.req)
++ *     return fetch('http://backend-service.com', clonedReq)
++ *   }
++ * )
++ * ```
++ */
++export const cloneRawRequest = async (req: HonoRequest): Promise<Request> => {
++  if (!req.raw.bodyUsed) {
++    return req.raw.clone()
++  }
++
++  const cacheKey = (Object.keys(req.bodyCache) as Array<keyof Body>)[0]
++  if (!cacheKey) {
++    throw new HTTPException(500, {
++      message:
++        'Cannot clone request: body was already consumed and not cached. Please use HonoRequest methods (e.g., req.json(), req.text()) instead of consuming req.raw directly.',
++    })
++  }
++
++  const requestInit: RequiredRequestInit = {
++    body: await req[cacheKey](),
++    cache: req.raw.cache,
++    credentials: req.raw.credentials,
++    headers: req.header(),
++    integrity: req.raw.integrity,
++    keepalive: req.raw.keepalive,
++    method: req.method,
++    mode: req.raw.mode,
++    redirect: req.raw.redirect,
++    referrer: req.raw.referrer,
++    referrerPolicy: req.raw.referrerPolicy,
++    signal: req.raw.signal,
++  }
++
++  return new Request(req.url, requestInit)
++}
+diff --git a/src/validator/validator.test.ts b/src/validator/validator.test.ts
+index 167a3313..99195473 100644
+--- a/src/validator/validator.test.ts
++++ b/src/validator/validator.test.ts
+@@ -4,6 +4,7 @@ import { z } from 'zod'
+ import type { Context } from '../context'
+ import { Hono } from '../hono'
+ import { HTTPException } from '../http-exception'
++import { cloneRawRequest } from '../request'
+ import type {
+   ErrorHandler,
+   ExtractSchema,
+@@ -1298,3 +1299,72 @@ describe('Transform', () => {
+     type TestActual = Actual
+   })
+ })
++
++describe('Raw Request cloning after validation', () => {
++  it('Should allow the `cloneRawRequest` util to clone the request object after validation', async () => {
++    const app = new Hono()
++
++    app.post(
++      '/json-validation',
++      validator('json', (data) => data),
++      async (c) => {
++        const clonedReq = await cloneRawRequest(c.req)
++        const clonedJSON = await clonedReq.json()
++
++        return c.json({
++          originalMethod: c.req.raw.method,
++          clonedMethod: clonedReq.method,
++          clonedUrl: clonedReq.url,
++          clonedHeaders: {
++            contentType: clonedReq.headers.get('Content-Type'),
++            customHeader: clonedReq.headers.get('X-Custom-Header'),
++          },
++          originalCache: c.req.raw.cache,
++          clonedCache: clonedReq.cache,
++          originalCredentials: c.req.raw.credentials,
++          clonedCredentials: clonedReq.credentials,
++          originalMode: c.req.raw.mode,
++          clonedMode: clonedReq.mode,
++          originalRedirect: c.req.raw.redirect,
++          clonedRedirect: clonedReq.redirect,
++          originalReferrerPolicy: c.req.raw.referrerPolicy,
++          clonedReferrerPolicy: clonedReq.referrerPolicy,
++          cloned: JSON.stringify(clonedJSON) === JSON.stringify(await c.req.json()),
++          payload: clonedJSON,
++        })
++      }
++    )
++
++    const testData = { message: 'test', userId: 123 }
++    const res = await app.request('/json-validation', {
++      method: 'POST',
++      headers: {
++        'Content-Type': 'application/json',
++        'X-Custom-Header': 'test-value',
++      },
++      body: JSON.stringify(testData),
++      cache: 'no-cache',
++      credentials: 'include',
++      mode: 'cors',
++      redirect: 'follow',
++      referrerPolicy: 'origin',
++    })
++
++    expect(res.status).toBe(200)
++
++    const result = await res.json()
++
++    expect(result.originalMethod).toBe('POST')
++    expect(result.clonedMethod).toBe('POST')
++    expect(result.clonedUrl).toBe('http://localhost/json-validation')
++    expect(result.clonedHeaders.contentType).toBe('application/json')
++    expect(result.clonedHeaders.customHeader).toBe('test-value')
++    expect(result.clonedCache).toBe(result.originalCache)
++    expect(result.clonedCredentials).toBe(result.originalCredentials)
++    expect(result.clonedMode).toBe(result.originalMode)
++    expect(result.clonedRedirect).toBe(result.originalRedirect)
++    expect(result.clonedReferrerPolicy).toBe(result.originalReferrerPolicy)
++    expect(result.cloned).toBe(true)
++    expect(result.payload).toMatchObject(testData)
++  })
++})

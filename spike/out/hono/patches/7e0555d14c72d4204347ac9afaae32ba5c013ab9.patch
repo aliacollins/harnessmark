@@ -1,0 +1,101 @@
+diff --git a/src/adapter/deno/websocket.test.ts b/src/adapter/deno/websocket.test.ts
+index 57d8e59d..c5192a91 100644
+--- a/src/adapter/deno/websocket.test.ts
++++ b/src/adapter/deno/websocket.test.ts
+@@ -76,6 +76,75 @@ describe('WebSockets', () => {
+       )
+     expect(await messagePromise).toBe(data)
+   })
++
++  it('Should pass the first Sec-WebSocket-Protocol value as the protocol option', async () => {
++    app.get(
++      '/ws',
++      upgradeWebSocket(() => ({}))
++    )
++    const socket = new EventTarget() as WebSocket
++    let passedOptions: Deno.UpgradeWebSocketOptions | undefined
++    Deno.upgradeWebSocket = (_req, options) => {
++      passedOptions = options
++      return {
++        response: new Response(),
++        socket,
++      }
++    }
++    await app.request('/ws', {
++      headers: {
++        upgrade: 'websocket',
++        'sec-websocket-protocol': 'rivet, rivet_target.actor, rivet_actor.19c4f9038947cdcb',
++      },
++    })
++    expect(passedOptions?.protocol).toBe('rivet')
++  })
++
++  it('Should not set the protocol option when Sec-WebSocket-Protocol is absent', async () => {
++    app.get(
++      '/ws',
++      upgradeWebSocket(() => ({}))
++    )
++    const socket = new EventTarget() as WebSocket
++    let passedOptions: Deno.UpgradeWebSocketOptions | undefined
++    Deno.upgradeWebSocket = (_req, options) => {
++      passedOptions = options
++      return {
++        response: new Response(),
++        socket,
++      }
++    }
++    await app.request('/ws', {
++      headers: {
++        upgrade: 'websocket',
++      },
++    })
++    expect(passedOptions?.protocol).toBeUndefined()
++  })
++
++  it('Should let an explicit protocol option take precedence over the request header', async () => {
++    app.get(
++      '/ws',
++      upgradeWebSocket(() => ({}), { protocol: 'user-chosen' })
++    )
++    const socket = new EventTarget() as WebSocket
++    let passedOptions: Deno.UpgradeWebSocketOptions | undefined
++    Deno.upgradeWebSocket = (_req, options) => {
++      passedOptions = options
++      return {
++        response: new Response(),
++        socket,
++      }
++    }
++    await app.request('/ws', {
++      headers: {
++        upgrade: 'websocket',
++        'sec-websocket-protocol': 'header-value',
++      },
++    })
++    expect(passedOptions?.protocol).toBe('user-chosen')
++  })
++
+   it('Should call next() when header does not have upgrade', async () => {
+     const next = vi.fn()
+     await upgradeWebSocket(() => ({}))(
+diff --git a/src/adapter/deno/websocket.ts b/src/adapter/deno/websocket.ts
+index d50ad7f1..858c48f4 100644
+--- a/src/adapter/deno/websocket.ts
++++ b/src/adapter/deno/websocket.ts
+@@ -7,7 +7,15 @@ export const upgradeWebSocket: UpgradeWebSocket<WebSocket, Deno.UpgradeWebSocket
+       return
+     }
+ 
+-    const { response, socket } = Deno.upgradeWebSocket(c.req.raw, options ?? {})
++    // Echo the negotiated subprotocol back to the client. Browsers (e.g. Chrome)
++    // reject the connection when a subprotocol was requested but the response is
++    // missing the `Sec-WebSocket-Protocol` header.
++    const subprotocol = c.req.header('sec-websocket-protocol')?.split(',')[0]?.trim()
++
++    const { response, socket } = Deno.upgradeWebSocket(c.req.raw, {
++      ...(subprotocol ? { protocol: subprotocol } : {}),
++      ...options,
++    })
+ 
+     const wsContext: WSContext<WebSocket> = new WSContext({
+       close: (code, reason) => socket.close(code, reason),

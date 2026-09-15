@@ -1,0 +1,30 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index 2b8d9749..c1a4d4af 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -118,8 +118,10 @@ describe('isContentEncodingBinary', () => {
+     expect(isContentEncodingBinary('deflate')).toBe(true)
+     expect(isContentEncodingBinary('br')).toBe(true)
+     expect(isContentEncodingBinary('deflate, gzip')).toBe(true)
++    expect(isContentEncodingBinary('zstd')).toBe(true)
+     expect(isContentEncodingBinary('')).toBe(false)
+-    expect(isContentEncodingBinary('unknown')).toBe(false)
++    expect(isContentEncodingBinary('identity')).toBe(false)
++    expect(isContentEncodingBinary(null)).toBe(false)
+   })
+ })
+ 
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 71de9537..4a258e9e 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -670,8 +670,5 @@ export const defaultIsContentTypeBinary = (contentType: string): boolean => {
+ }
+ 
+ export const isContentEncodingBinary = (contentEncoding: string | null) => {
+-  if (contentEncoding === null) {
+-    return false
+-  }
+-  return /^(gzip|deflate|compress|br)/.test(contentEncoding)
++  return !!contentEncoding && !/^identity$/i.test(contentEncoding)
+ }

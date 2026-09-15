@@ -1,0 +1,30 @@
+diff --git a/src/middleware/bearer-auth/index.test.ts b/src/middleware/bearer-auth/index.test.ts
+index 828950b8..f853659e 100644
+--- a/src/middleware/bearer-auth/index.test.ts
++++ b/src/middleware/bearer-auth/index.test.ts
+@@ -1007,3 +1007,12 @@ describe('Bearer Auth types', () => {
+     expectTypeOf(middleware).toEqualTypeOf<MiddlewareHandler<TestEnv>>()
+   })
+ })
++
++describe('Bearer Auth options validation', () => {
++  it('Should throw an error mentioning both "token" and "verifyToken" when neither is provided', () => {
++    expect(() => {
++      // @ts-expect-error testing runtime guard with no valid options
++      bearerAuth({})
++    }).toThrow('bearer auth middleware requires options for "token" or "verifyToken"')
++  })
++})
+diff --git a/src/middleware/bearer-auth/index.ts b/src/middleware/bearer-auth/index.ts
+index 4cacdb9d..bfe3b778 100644
+--- a/src/middleware/bearer-auth/index.ts
++++ b/src/middleware/bearer-auth/index.ts
+@@ -105,7 +105,7 @@ export const bearerAuth = <E extends Env = Env>(
+   options: BearerAuthOptions<E>
+ ): MiddlewareHandler<E> => {
+   if (!('token' in options || 'verifyToken' in options)) {
+-    throw new Error('bearer auth middleware requires options for "token"')
++    throw new Error('bearer auth middleware requires options for "token" or "verifyToken"')
+   }
+   if (!options.realm) {
+     options.realm = ''

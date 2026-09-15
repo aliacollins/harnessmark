@@ -1,0 +1,49 @@
+diff --git a/src/jsx/base.test.tsx b/src/jsx/base.test.tsx
+index e12a424e..7ec3ee65 100644
+--- a/src/jsx/base.test.tsx
++++ b/src/jsx/base.test.tsx
+@@ -34,3 +34,13 @@ describe('cloneElement', () => {
+     expect(element.toString()).toBe('<hr/>')
+   })
+ })
++
++describe('createElement', () => {
++  it('should preserve the SVG element shape', () => {
++    const ref = { current: null }
++    const element = jsx('svg', { ref }) as unknown as JSXNode
++    expect(element.tag).toBe('svg')
++    expect(element.type).toBe('svg')
++    expect(element.ref).toBe(ref)
++  })
++})
+diff --git a/src/jsx/base.ts b/src/jsx/base.ts
+index 275a55cd..b7afb1dd 100644
+--- a/src/jsx/base.ts
++++ b/src/jsx/base.ts
+@@ -185,7 +185,7 @@ export class JSXNode implements HtmlEscaped {
+     buffer[0] += `<${tag}`
+ 
+     const normalizeKey: (key: string) => string =
+-      nameSpaceContext && useContext(nameSpaceContext) === 'svg'
++      tag === 'svg' || (nameSpaceContext && useContext(nameSpaceContext) === 'svg')
+         ? (key) => toSVGAttributeName(normalizeIntrinsicElementKey(key))
+         : (key) => normalizeIntrinsicElementKey(key)
+     for (let [key, v] of Object.entries(props)) {
+diff --git a/src/jsx/index.test.tsx b/src/jsx/index.test.tsx
+index f05fef7b..6ececbdc 100644
+--- a/src/jsx/index.test.tsx
++++ b/src/jsx/index.test.tsx
+@@ -797,6 +797,13 @@ describe('SVG', () => {
+     expect(template.toString()).toBe('<svg><g viewBox="0 0 10 10"></g></svg>')
+   })
+ 
++  it('should normalize kebab-case attributes on the <svg> root element', () => {
++    const template = <svg {...{ strokeWidth: '1.5', strokeLinecap: 'round' }} viewBox='0 0 16 16' />
++    expect(template.toString()).toBe(
++      '<svg stroke-width="1.5" stroke-linecap="round" viewBox="0 0 16 16"></svg>'
++    )
++  })
++
+   describe('attribute', () => {
+     describe('camelCase', () => {
+       test.each`

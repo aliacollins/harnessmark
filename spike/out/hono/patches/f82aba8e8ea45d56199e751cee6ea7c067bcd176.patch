@@ -1,0 +1,626 @@
+diff --git a/src/helper/css/common.ts b/src/helper/css/common.ts
+index 12f54337..ece8165d 100644
+--- a/src/helper/css/common.ts
++++ b/src/helper/css/common.ts
+@@ -49,6 +49,29 @@ const toHash = (str: string): string => {
+   return 'css-' + out
+ }
+ 
++const normalizeLabel = (label: string): string => {
++  return label.trim().replace(/\s+/g, '-')
++}
++
++const isValidClassName = (name: string): boolean => /^-?[_a-zA-Z][_a-zA-Z0-9-]*$/.test(name)
++
++// CSS-wide keywords that are invalid as @keyframes names per the spec
++const RESERVED_KEYFRAME_NAMES = new Set([
++  'default',
++  'inherit',
++  'initial',
++  'none',
++  'revert',
++  'revert-layer',
++  'unset',
++])
++const isValidKeyframeName = (name: string): boolean =>
++  isValidClassName(name) && !RESERVED_KEYFRAME_NAMES.has(name.toLowerCase())
++
++const defaultOnInvalidSlug = (slug: string) => {
++  console.warn(`Invalid slug: ${slug}`)
++}
++
+ const cssStringReStr: string = [
+   '"(?:(?:\\\\[\\s\\S]|[^"\\\\])*)"', // double quoted string
+ 
+@@ -90,6 +113,25 @@ type CssVariableAsyncType = Promise<CssVariableBasicType>
+ type CssVariableArrayType = (CssVariableBasicType | CssVariableAsyncType)[]
+ export type CssVariableType = CssVariableBasicType | CssVariableAsyncType | CssVariableArrayType
+ 
++/**
++ * A function that customizes generated CSS class names.
++ *
++ * @param hash - The default hash-based class name (e.g. `css-1234567890`)
++ * @param label - The comment label extracted from the CSS template, may be empty.
++ *   Whitespace is trimmed and inner spaces are replaced with hyphens.
++ * @param styleString - The minified CSS style string
++ * @returns The custom class name to use. Must be a safe CSS identifier;
++ *   otherwise, the default hash is used as a fallback.
++ */
++export type ClassNameSlug = (hash: string, label: string, styleString: string) => string
++
++/**
++ * A callback function called when an invalid slug is returned from ClassNameSlug.
++ *
++ * @param slug - The invalid slug
++ */
++export type OnInvalidSlug = (slug: string) => void
++
+ export const buildStyleString = (
+   strings: TemplateStringsArray,
+   values: CssVariableType[]
+@@ -154,14 +196,30 @@ export const buildStyleString = (
+ 
+ export const cssCommon = (
+   strings: TemplateStringsArray,
+-  values: CssVariableType[]
++  values: CssVariableType[],
++  classNameSlug?: ClassNameSlug,
++  onInvalidSlug?: OnInvalidSlug
+ ): CssClassName => {
+   let [label, thisStyleString, selectors, externalClassNames] = buildStyleString(strings, values)
+   const isPseudoGlobal = isPseudoGlobalSelectorRe.exec(thisStyleString)
+   if (isPseudoGlobal) {
+     thisStyleString = isPseudoGlobal[1]
+   }
+-  const selector = (isPseudoGlobal ? PSEUDO_GLOBAL_SELECTOR : '') + toHash(label + thisStyleString)
++  const hash = toHash(label + thisStyleString)
++
++  let customSlug: string | undefined
++  if (classNameSlug) {
++    const slug = classNameSlug(hash, normalizeLabel(label), thisStyleString)
++    if (slug) {
++      if (isValidClassName(slug)) {
++        customSlug = slug
++      } else {
++        ;(onInvalidSlug || defaultOnInvalidSlug)(slug)
++      }
++    }
++  }
++
++  const selector = (isPseudoGlobal ? PSEUDO_GLOBAL_SELECTOR : '') + (customSlug || hash)
+   const className = (
+     isPseudoGlobal ? selectors.map((s) => s[CLASS_NAME]) : [selector, ...externalClassNames]
+   ).join(' ')
+@@ -196,12 +254,28 @@ export const cxCommon = (
+ 
+ export const keyframesCommon = (
+   strings: TemplateStringsArray,
+-  ...values: CssVariableType[]
++  values: CssVariableType[],
++  classNameSlug?: ClassNameSlug,
++  onInvalidSlug?: OnInvalidSlug
+ ): CssClassName => {
+   const [label, styleString] = buildStyleString(strings, values)
++  const hash = toHash(label + styleString)
++
++  let customSlug: string | undefined
++  if (classNameSlug) {
++    const slug = classNameSlug(hash, normalizeLabel(label), styleString)
++    if (slug) {
++      if (isValidKeyframeName(slug)) {
++        customSlug = slug
++      } else {
++        ;(onInvalidSlug || defaultOnInvalidSlug)(slug)
++      }
++    }
++  }
++
+   return {
+     [SELECTOR]: '',
+-    [CLASS_NAME]: `@keyframes ${toHash(label + styleString)}`,
++    [CLASS_NAME]: `@keyframes ${customSlug || hash}`,
+     [STYLE_STRING]: styleString,
+     [SELECTORS]: [],
+     [EXTERNAL_CLASS_NAMES]: [],
+@@ -209,7 +283,12 @@ export const keyframesCommon = (
+ }
+ 
+ type ViewTransitionType = {
+-  (strings: TemplateStringsArray, values: CssVariableType[]): CssClassName
++  (
++    strings: TemplateStringsArray,
++    values: CssVariableType[],
++    classNameSlug?: ClassNameSlug,
++    onInvalidSlug?: OnInvalidSlug
++  ): CssClassName
+   (content: CssClassName): CssClassName
+   (): CssClassName
+ }
+@@ -217,19 +296,25 @@ type ViewTransitionType = {
+ let viewTransitionNameIndex = 0
+ export const viewTransitionCommon: ViewTransitionType = ((
+   strings: TemplateStringsArray | CssClassName | undefined,
+-  values: CssVariableType[]
++  values: CssVariableType[],
++  classNameSlug?: ClassNameSlug,
++  onInvalidSlug?: OnInvalidSlug
+ ): CssClassName => {
+   if (!strings) {
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     strings = [`/* h-v-t ${viewTransitionNameIndex++} */`] as any
+   }
+   const content = Array.isArray(strings)
+-    ? cssCommon(strings as TemplateStringsArray, values)
++    ? cssCommon(strings as TemplateStringsArray, values, classNameSlug, onInvalidSlug)
+     : (strings as CssClassName)
+ 
+   const transitionName = content[CLASS_NAME]
+-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+-  const res = cssCommon(['view-transition-name:', ''] as any, [transitionName])
++  const res = cssCommon(
++    ['view-transition-name:', ''] as any, // eslint-disable-line @typescript-eslint/no-explicit-any
++    [transitionName],
++    classNameSlug,
++    onInvalidSlug
++  )
+ 
+   content[CLASS_NAME] = PSEUDO_GLOBAL_SELECTOR + content[CLASS_NAME]
+   content[STYLE_STRING] = content[STYLE_STRING].replace(
+diff --git a/src/helper/css/index.test.tsx b/src/helper/css/index.test.tsx
+index c8001d9c..a60f41cc 100644
+--- a/src/helper/css/index.test.tsx
++++ b/src/helper/css/index.test.tsx
+@@ -206,6 +206,268 @@ describe('CSS Helper', () => {
+     })
+   })
+ 
++  describe('classNameSlug', () => {
++    it('Should use custom classNameSlug function', async () => {
++      const { css: customCss, Style: customStyle } = createCssContext({
++        id: 'custom-slug',
++        classNameSlug: (hash, _label, _css) => `btn-${hash.split('-')[1]}`,
++      })
++      const btnClass = customCss`
++        background-color: blue;
++      `
++      const template = (
++        <>
++          {customStyle()}
++          <button class={btnClass}>Click</button>
++        </>
++      )
++      const result = await toString(template)
++      expect(result).toContain('.btn-')
++      expect(result).not.toContain('.css-')
++    })
++
++    it('Should pass label to classNameSlug', async () => {
++      const { css: customCss, Style: customStyle } = createCssContext({
++        id: 'label-slug',
++        classNameSlug: (hash, label) => (label ? `h-${label}` : hash),
++      })
++      const headerClass = customCss`
++        /* hero section */
++        background-color: blue;
++      `
++      const template = (
++        <>
++          {customStyle()}
++          <div class={headerClass}>Hero</div>
++        </>
++      )
++      const result = await toString(template)
++      expect(result).toContain('.h-hero-section')
++      expect(result).toContain('background-color:blue')
++    })
++
++    it('Should fall back to different hash values for labels with special characters', async () => {
++      const { css: customCss, Style: customStyle } = createCssContext({
++        id: 'label-deferent-slug',
++        classNameSlug: (hash, label) => (label ? `h-${label}` : hash),
++      })
++      const headerClass1 = customCss`
++        /* hero section! */
++        background-color: blue;
++      `
++      const headerClass2 = customCss`
++        /* hero section? */
++        background-color: blue;
++      `
++      const template = (
++        <>
++          {customStyle()}
++          <div class={headerClass1}>Hero</div>
++          <div class={headerClass2}>Hero</div>
++        </>
++      )
++      const result = await toString(template)
++
++      const classes = new Set<string>()
++      result.match(/class="(.*?)"/g)?.forEach((match) => {
++        classes.add(match)
++      })
++      expect(classes.size).toBe(2)
++    })
++
++    it('Should fall back to hash when label is empty', async () => {
++      const { css: customCss, Style: customStyle } = createCssContext({
++        id: 'fallback-slug',
++        classNameSlug: (hash, label) => (label ? `h-${label}` : hash),
++      })
++      const noLabelClass = customCss`
++        color: red;
++      `
++      const template = (
++        <>
++          {customStyle()}
++          <div class={noLabelClass}>No label</div>
++        </>
++      )
++      const result = await toString(template)
++      expect(result).toContain('.css-')
++      expect(result).toContain('color:red')
++    })
++
++    it('Should not affect default context when classNameSlug is not set', async () => {
++      const headerClass = css`
++        background-color: blue;
++      `
++      const template = (
++        <>
++          <Style />
++          <h1 class={headerClass}>Default</h1>
++        </>
++      )
++      const result = await toString(template)
++      expect(result).toContain('.css-2458908649')
++      expect(result).toContain('background-color:blue')
++    })
++
++    it('Should apply classNameSlug to keyframes', async () => {
++      const {
++        css: customCss,
++        keyframes: customKeyframes,
++        Style: customStyle,
++      } = createCssContext({
++        id: 'kf-slug',
++        classNameSlug: (hash, label) => (label ? `h-${label}` : hash),
++      })
++      const animation = customKeyframes`
++        /* fade-in */
++        from { opacity: 0; }
++        to { opacity: 1; }
++      `
++      const headerClass = customCss`
++        animation: ${animation} 1s ease-in-out;
++      `
++      const template = (
++        <>
++          {customStyle()}
++          <h1 class={headerClass}>Hello!</h1>
++        </>
++      )
++      const result = await toString(template)
++      expect(result).toContain('@keyframes h-fade-in')
++      expect(result).toContain('animation:h-fade-in 1s ease-in-out')
++    })
++
++    it('Should apply classNameSlug to viewTransition', async () => {
++      const {
++        css: customCss,
++        viewTransition: customViewTransition,
++        Style: customStyle,
++      } = createCssContext({
++        id: 'vt-slug',
++        classNameSlug: (hash, label) => (label ? `h-${label}` : hash),
++      })
++      const transition = customViewTransition(customCss`
++        /* hero */
++        display: flex;
++      `)
++      const template = (
++        <>
++          {customStyle()}
++          <h1 class={transition}>Hello!</h1>
++        </>
++      )
++      const result = await toString(template)
++      expect(result).toContain('view-transition-name:h-hero')
++    })
++
++    it('Should fall back to hash when classNameSlug returns invalid characters', async () => {
++      const { css: customCss, Style: customStyle } = createCssContext({
++        id: 'empty-slug',
++        classNameSlug: () => 'name!',
++      })
++      const headerClass = customCss`
++        display: flex;
++      `
++      const template = (
++        <>
++          {customStyle()}
++          <h1 class={headerClass}>Hello!</h1>
++        </>
++      )
++      const result = await toString(template)
++      expect(result).toContain('.css-')
++      expect(result).toContain('display:flex')
++    })
++
++    it('Should fall back to hash when classNameSlug starts with a number', async () => {
++      const { css: customCss, Style: customStyle } = createCssContext({
++        id: 'numeric-slug',
++        classNameSlug: () => '1hero',
++      })
++      const headerClass = customCss`
++        display: flex;
++      `
++      const template = (
++        <>
++          {customStyle()}
++          <h1 class={headerClass}>Hello!</h1>
++        </>
++      )
++      const result = await toString(template)
++      expect(result).toContain('.css-')
++      expect(result).toContain('display:flex')
++      expect(result).not.toContain('.1hero')
++    })
++
++    it('Should fall back to hash when label is empty and classNameSlug returns label', async () => {
++      const { css: customCss, Style: customStyle } = createCssContext({
++        id: 'empty-label-slug',
++        classNameSlug: (_, label) => label,
++      })
++      const headerClass = customCss`
++        display: flex;
++      `
++      const template = (
++        <>
++          {customStyle()}
++          <h1 class={headerClass}>Hello!</h1>
++        </>
++      )
++      const result = await toString(template)
++      expect(result).toContain('.css-')
++      expect(result).toContain('display:flex')
++    })
++
++    it('Should fall back to hash when keyframes name is a reserved keyword', async () => {
++      const {
++        css: customCss,
++        keyframes: customKeyframes,
++        Style: customStyle,
++      } = createCssContext({
++        id: 'reserved-kf-slug',
++        classNameSlug: () => 'none',
++      })
++      const animation = customKeyframes`
++        from { opacity: 0; }
++        to { opacity: 1; }
++      `
++      const headerClass = customCss`
++        animation: ${animation} 1s ease-in-out;
++      `
++      const template = (
++        <>
++          {customStyle()}
++          <h1 class={headerClass}>Hello!</h1>
++        </>
++      )
++      const result = await toString(template)
++      expect(result).toContain('@keyframes css-')
++      expect(result).toContain('animation:css-')
++      expect(result).not.toContain('@keyframes none')
++      expect(result).not.toContain('animation:none 1s ease-in-out')
++    })
++
++    it('Should call onInvalidSlug when an invalid slug is returned', async () => {
++      const onInvalidSlug = vi.fn()
++      const { css: customCss, Style: customStyle } = createCssContext({
++        id: 'on-invalid-slug',
++        classNameSlug: () => '123',
++        onInvalidSlug,
++      })
++      const headerClass = customCss`
++        display: flex;
++      `
++      const template = (
++        <>
++          {customStyle()}
++          <h1 class={headerClass}>Hello!</h1>
++        </>
++      )
++      await toString(template)
++      expect(onInvalidSlug).toHaveBeenCalledWith('123')
++    })
++  })
++
+   describe('with application', () => {
+     const app = new Hono()
+ 
+diff --git a/src/helper/css/index.ts b/src/helper/css/index.ts
+index d46fa928..39cfd2df 100644
+--- a/src/helper/css/index.ts
++++ b/src/helper/css/index.ts
+@@ -7,7 +7,12 @@ import { raw } from '../../helper/html'
+ import { DOM_RENDERER } from '../../jsx/constants'
+ import { createCssJsxDomObjects } from '../../jsx/dom/css'
+ import type { HtmlEscapedCallback, HtmlEscapedString } from '../../utils/html'
+-import type { CssClassName as CssClassNameCommon, CssVariableType } from './common'
++import type {
++  ClassNameSlug,
++  CssClassName as CssClassNameCommon,
++  CssVariableType,
++  OnInvalidSlug,
++} from './common'
+ import {
+   CLASS_NAME,
+   DEFAULT_STYLE_ID,
+@@ -21,6 +26,7 @@ import {
+   viewTransitionCommon,
+ } from './common'
+ export { rawCssString } from './common'
++export type { ClassNameSlug, OnInvalidSlug } from './common'
+ 
+ type CssClassName = HtmlEscapedString & CssClassNameCommon
+ 
+@@ -57,8 +63,20 @@ interface StyleType {
+  * @experimental
+  * `createCssContext` is an experimental feature.
+  * The API might be changed.
++ *
++ * @param options.id - The ID for the style element
++ * @param options.classNameSlug - Optional function to customize generated CSS class names
++ * @param options.onInvalidSlug - Optional callback function called when an invalid slug is returned from ClassNameSlug
+  */
+-export const createCssContext = ({ id }: { id: Readonly<string> }): DefaultContextType => {
++export const createCssContext = ({
++  id,
++  classNameSlug,
++  onInvalidSlug,
++}: {
++  id: Readonly<string>
++  classNameSlug?: ClassNameSlug
++  onInvalidSlug?: OnInvalidSlug
++}): DefaultContextType => {
+   const [cssJsxDomObject, StyleRenderToDom] = createCssJsxDomObjects({ id })
+ 
+   const contextMap: WeakMap<object, usedClassNameData> = new WeakMap()
+@@ -139,7 +157,7 @@ export const createCssContext = ({ id }: { id: Readonly<string> }): DefaultConte
+   }
+ 
+   const css: CssType = (strings, ...values) => {
+-    return newCssClassNameObject(cssCommon(strings, values))
++    return newCssClassNameObject(cssCommon(strings, values, classNameSlug, onInvalidSlug))
+   }
+ 
+   const cx: CxType = (...args) => {
+@@ -149,14 +167,16 @@ export const createCssContext = ({ id }: { id: Readonly<string> }): DefaultConte
+     return css(Array(args.length).fill('') as any, ...args)
+   }
+ 
+-  const keyframes = keyframesCommon
++  const keyframes: KeyframesType = (strings, ...values) =>
++    keyframesCommon(strings, values, classNameSlug, onInvalidSlug)
+ 
+   const viewTransition: ViewTransitionType = ((
+     strings: TemplateStringsArray | Promise<string> | undefined,
+     ...values: CssVariableType[]
+   ) => {
+-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+-    return newCssClassNameObject(viewTransitionCommon(strings as any, values))
++    return newCssClassNameObject(
++      viewTransitionCommon(strings as any, values, classNameSlug, onInvalidSlug) // eslint-disable-line @typescript-eslint/no-explicit-any
++    )
+   }) as ViewTransitionType
+ 
+   const Style: StyleType = ({ children, nonce } = {}) =>
+diff --git a/src/jsx/dom/css.test.tsx b/src/jsx/dom/css.test.tsx
+index 5161af15..398dfeb3 100644
+--- a/src/jsx/dom/css.test.tsx
++++ b/src/jsx/dom/css.test.tsx
+@@ -86,6 +86,34 @@ describe('Style and css for jsx/dom', () => {
+       '<div><style id="hono-css">color:red</style><div class="css-3142110215">red</div></div>'
+     )
+   })
++
++  it('classNameSlug with createCssContext', async () => {
++    const { css: customCss, Style: CustomStyle } = createCssContext({
++      id: 'custom-dom',
++      classNameSlug: (hash, label) => (label ? `h-${label}` : hash),
++    })
++    const App = () => {
++      return (
++        <div>
++          <CustomStyle />
++          <div
++            class={customCss`
++              /* hero */
++              color: blue;
++            `}
++          >
++            blue
++          </div>
++        </div>
++      )
++    }
++    render(<App />, root)
++    expect(root.innerHTML).toBe(
++      '<div><style id="custom-dom"></style><div class="h-hero">blue</div></div>'
++    )
++    await Promise.resolve()
++    expect(root.querySelector('style')?.sheet?.cssRules[0].cssText).toBe('.h-hero {color: blue;}')
++  })
+ })
+ 
+ describe('render', () => {
+diff --git a/src/jsx/dom/css.ts b/src/jsx/dom/css.ts
+index 4fdaf6ca..47d094ed 100644
+--- a/src/jsx/dom/css.ts
++++ b/src/jsx/dom/css.ts
+@@ -4,7 +4,12 @@
+  */
+ 
+ import type { FC, PropsWithChildren } from '../'
+-import type { CssClassName, CssVariableType } from '../../helper/css/common'
++import type {
++  ClassNameSlug,
++  CssClassName,
++  CssVariableType,
++  OnInvalidSlug,
++} from '../../helper/css/common'
+ import {
+   CLASS_NAME,
+   DEFAULT_STYLE_ID,
+@@ -167,8 +172,20 @@ interface DefaultContextType {
+  * @experimental
+  * `createCssContext` is an experimental feature.
+  * The API might be changed.
++ *
++ * @param options.id - The ID for the style element
++ * @param options.classNameSlug - Optional function to customize generated CSS class names
++ * @param options.onInvalidSlug - Optional callback function called when an invalid slug is returned from ClassNameSlug
+  */
+-export const createCssContext = ({ id }: { id: Readonly<string> }): DefaultContextType => {
++export const createCssContext = ({
++  id,
++  classNameSlug,
++  onInvalidSlug,
++}: {
++  id: Readonly<string>
++  classNameSlug?: ClassNameSlug
++  onInvalidSlug?: OnInvalidSlug
++}): DefaultContextType => {
+   const [cssObject, Style] = createCssJsxDomObjects({ id })
+ 
+   const newCssClassNameObject = (cssClassName: CssClassName): string => {
+@@ -177,7 +194,7 @@ export const createCssContext = ({ id }: { id: Readonly<string> }): DefaultConte
+   }
+ 
+   const css: CssType = (strings, ...values) => {
+-    return newCssClassNameObject(cssCommon(strings, values))
++    return newCssClassNameObject(cssCommon(strings, values, classNameSlug, onInvalidSlug))
+   }
+ 
+   const cx: CxType = (...args) => {
+@@ -187,14 +204,16 @@ export const createCssContext = ({ id }: { id: Readonly<string> }): DefaultConte
+     return css(Array(args.length).fill('') as any, ...args)
+   }
+ 
+-  const keyframes: KeyframesType = keyframesCommon
++  const keyframes: KeyframesType = (strings, ...values) =>
++    keyframesCommon(strings, values, classNameSlug, onInvalidSlug)
+ 
+   const viewTransition: ViewTransitionType = ((
+     strings: TemplateStringsArray | string | undefined,
+     ...values: CssVariableType[]
+   ) => {
+-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+-    return newCssClassNameObject(viewTransitionCommon(strings as any, values))
++    return newCssClassNameObject(
++      viewTransitionCommon(strings as any, values, classNameSlug, onInvalidSlug) // eslint-disable-line @typescript-eslint/no-explicit-any
++    )
+   }) as ViewTransitionType
+ 
+   return {

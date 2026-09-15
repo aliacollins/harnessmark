@@ -1,0 +1,13 @@
+{"Time":"2026-01-01T00:00:00Z","Action":"start","Package":"github.com/spf13/cobra"}
+{"Time":"2026-01-01T00:00:00Z","Action":"run","Package":"github.com/spf13/cobra","Test":"TestRoot"}
+{"Time":"2026-01-01T00:00:00Z","Action":"output","Package":"github.com/spf13/cobra","Test":"TestRoot","Output":"=== RUN   TestRoot\n"}
+{"Time":"2026-01-01T00:00:00Z","Action":"run","Package":"github.com/spf13/cobra","Test":"TestRoot/sub"}
+{"Time":"2026-01-01T00:00:00Z","Action":"fail","Package":"github.com/spf13/cobra","Test":"TestRoot/sub","Elapsed":0}
+{"Time":"2026-01-01T00:00:00Z","Action":"fail","Package":"github.com/spf13/cobra","Test":"TestRoot","Elapsed":0}
+{"Time":"2026-01-01T00:00:00Z","Action":"run","Package":"github.com/spf13/cobra","Test":"TestFlags"}
+{"Time":"2026-01-01T00:00:00Z","Action":"pass","Package":"github.com/spf13/cobra","Test":"TestFlags","Elapsed":0}
+{"Time":"2026-01-01T00:00:00Z","Action":"run","Package":"github.com/spf13/cobra/doc","Test":"TestFlags"}
+{"Time":"2026-01-01T00:00:00Z","Action":"skip","Package":"github.com/spf13/cobra/doc","Test":"TestFlags","Elapsed":0}
+{"Time":"2026-01-01T00:00:00Z","Action":"fail","Package":"github.com/spf13/cobra","Elapsed":0.1}
+{"Time":"2026-01-01T00:00:00Z","Action":"pass","Package":"github.com/spf13/cobra/doc","Elapsed":0.1}
+some human noise line

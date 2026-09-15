@@ -1,0 +1,895 @@
+diff --git a/src/jsx/base.test.tsx b/src/jsx/base.test.tsx
+index 5f4c1ecb..602ad630 100644
+--- a/src/jsx/base.test.tsx
++++ b/src/jsx/base.test.tsx
+@@ -1,5 +1,6 @@
+ /** @jsxImportSource ./ */
+ 
++import type { HtmlEscapedString } from '../utils/html'
+ import type { Child, JSXNode } from './base'
+ // eslint-disable-next-line @typescript-eslint/no-unused-vars
+ import { cloneElement, jsx, Fragment } from './base'
+@@ -49,4 +50,24 @@ describe('createElement', () => {
+     const element = jsx('div', null, child) as unknown as JSXNode
+     expect(element.toString()).toBe('<div><span>inner</span></div>')
+   })
++
++  it('should escape a string returned by an asynchronous component', async () => {
++    const Async = async () => '<img src=x onerror=alert(1)>' as unknown as HtmlEscapedString
++
++    expect(
++      String(
++        await (
++          <div>
++            <Async />
++          </div>
++        ).toString()
++      )
++    ).toBe('<div>&lt;img src=x onerror=alert(1)&gt;</div>')
++  })
++
++  it('should omit an unsupported object child', () => {
++    const object = { toString: () => 'plain-text' }
++
++    expect((<div>{object as never}</div>).toString()).toBe('<div></div>')
++  })
+ })
+diff --git a/src/jsx/base.ts b/src/jsx/base.ts
+index bad6848b..e7c5ba79 100644
+--- a/src/jsx/base.ts
++++ b/src/jsx/base.ts
+@@ -118,10 +118,14 @@ const resolveFunctionComponentResult = (
+   suspendedContext?: SuspendedContext
+ ): Promise<string> =>
+   result.then((resolved) => {
+-    if (!Array.isArray(resolved) && !(resolved instanceof JSXNode)) {
++    if (
++      typeof resolved !== 'string' &&
++      !Array.isArray(resolved) &&
++      !(resolved instanceof JSXNode)
++    ) {
+       return resolved
+     }
+-    const children = Array.isArray(resolved) ? resolved : [resolved]
++    const children = Array.isArray(resolved) ? resolved : [resolved as Child]
+     const render = () => {
+       const buffer: StringBufferWithCallbacks = [''] as StringBufferWithCallbacks
+       childrenToStringToBuffer(children, buffer)
+@@ -168,6 +172,33 @@ export type Child =
+   | undefined
+   | boolean
+   | Child[]
++
++export const renderChildren = (children: Child[]): HtmlEscapedString | Promise<HtmlEscapedString> =>
++  runWithRenderContext(() => {
++    const buffer: StringBufferWithCallbacks = [''] as StringBufferWithCallbacks
++    childrenToStringToBuffer(children, buffer)
++    return buffer.length === 1
++      ? raw(buffer[0], buffer.callbacks)
++      : stringBufferToString(buffer, buffer.callbacks)
++  })
++
++export const isUntrustedObject = (value: unknown): boolean =>
++  typeof value === 'object' &&
++  value !== null &&
++  !Array.isArray(value) &&
++  !(value instanceof JSXNode) &&
++  !(value instanceof Promise) &&
++  !(value as HtmlEscaped).isEscaped &&
++  typeof (value as { toString?: unknown }).toString === 'function'
++
++export const renderUntrustedObject = (
++  value: unknown
++): HtmlEscapedString | Promise<HtmlEscapedString> => {
++  const stringified = (value as { toString(): unknown }).toString()
++  const escape = (result: unknown) => renderChildren([String(result)])
++  return stringified instanceof Promise ? stringified.then(escape) : escape(stringified)
++}
++
+ export class JSXNode implements HtmlEscaped {
+   tag: string | Function
+   props: Props
+diff --git a/src/jsx/components.test.tsx b/src/jsx/components.test.tsx
+index 6204041e..08d60029 100644
+--- a/src/jsx/components.test.tsx
++++ b/src/jsx/components.test.tsx
+@@ -7,6 +7,9 @@ import { HtmlEscapedCallbackPhase, resolveCallback as rawResolveCallback } from
+ import { ErrorBoundary } from './components'
+ import { Suspense, renderToReadableStream, StreamingContext } from './streaming'
+ 
++const unsafeHtml = '<img src=x onerror=alert(1)>'
++const escapedUnsafeHtml = '&lt;img src=x onerror=alert(1)&gt;'
++
+ function resolveCallback(template: string | HtmlEscapedString) {
+   return rawResolveCallback(template, HtmlEscapedCallbackPhase.Stream, false, {})
+ }
+@@ -17,6 +20,21 @@ function replacementResult(html: string) {
+   return document.body.innerHTML
+ }
+ 
++async function stringify(node: { toString(): string | Promise<string> }): Promise<string> {
++  return String(
++    await rawResolveCallback(await node.toString(), HtmlEscapedCallbackPhase.Stringify, false, {})
++  )
++}
++
++async function drainStream(stream: ReadableStream<Uint8Array>): Promise<string> {
++  const decoder = new TextDecoder()
++  let result = ''
++  for await (const chunk of stream) {
++    result += decoder.decode(chunk)
++  }
++  return result
++}
++
+ const Fallback = () => <div>Out Of Service</div>
+ 
+ describe('ErrorBoundary', () => {
+@@ -798,4 +816,121 @@ d.remove()
+       suspenseCounter--
+     })
+   })
++
++  describe('escaping', () => {
++    const Broken = () => {
++      throw new Error('boom')
++    }
++
++    it('escapes strings when an asynchronous sibling is present', async () => {
++      const Async = async () => <span>done</span>
++      const node = (
++        <ErrorBoundary fallback='error'>
++          {unsafeHtml}
++          <Async />
++        </ErrorBoundary>
++      )
++
++      expect(await stringify(node)).toBe(`${escapedUnsafeHtml}<span>done</span>`)
++      const streamed = await drainStream(renderToReadableStream(node))
++      expect(streamed).toContain(escapedUnsafeHtml)
++      expect(streamed).not.toContain(unsafeHtml)
++    })
++
++    it('escapes untrusted object fallbacks', async () => {
++      const object = { toString: () => unsafeHtml }
++      const asyncObject = { toString: async () => unsafeHtml }
++      const rawObject = { toString: () => raw(unsafeHtml) }
++
++      for (const fallback of [object, asyncObject, rawObject]) {
++        expect(
++          await stringify(
++            <ErrorBoundary fallback={fallback as never}>
++              <Broken />
++            </ErrorBoundary>
++          )
++        ).toBe(escapedUnsafeHtml)
++      }
++    })
++
++    it('preserves an explicitly trusted fallback', async () => {
++      expect(
++        await stringify(
++          <ErrorBoundary fallback={raw('<strong>trusted</strong>')}>
++            <Broken />
++          </ErrorBoundary>
++        )
++      ).toBe('<strong>trusted</strong>')
++    })
++
++    it('does not interpret replacement patterns in content', async () => {
++      const content = "literal $& $` $'"
++      const Async = async () => <span>done</span>
++
++      expect(
++        await stringify(
++          <ErrorBoundary fallback='error'>
++            {content}
++            <Async />
++          </ErrorBoundary>
++        )
++      ).toBe('literal $&amp; $` $&#39;<span>done</span>')
++    })
++
++    it('escapes untrusted object children', async () => {
++      const object = { toString: () => unsafeHtml }
++      const asyncObject = { toString: async () => unsafeHtml }
++      const rawObject = { toString: () => raw(unsafeHtml) }
++
++      for (const child of [object, asyncObject, rawObject]) {
++        const node = <ErrorBoundary fallback='error'>{child as never}</ErrorBoundary>
++        expect(await stringify(node)).toBe(escapedUnsafeHtml)
++        const streamed = await drainStream(renderToReadableStream(node))
++        expect(streamed).toContain(escapedUnsafeHtml)
++        expect(streamed).not.toContain(unsafeHtml)
++      }
++    })
++
++    it('preserves explicitly trusted children', async () => {
++      expect(
++        await stringify(
++          <ErrorBoundary fallback='error'>{raw('<strong>trusted</strong>')}</ErrorBoundary>
++        )
++      ).toBe('<strong>trusted</strong>')
++    })
++
++    it('keeps benign object stringification visible', async () => {
++      expect(await stringify(<ErrorBoundary fallback='error'>{{} as never}</ErrorBoundary>)).toBe(
++        '[object Object]'
++      )
++    })
++
++    it('escapes nested fallback arrays', async () => {
++      expect(
++        await stringify(
++          <ErrorBoundary fallback={[[unsafeHtml]]}>
++            <Broken />
++          </ErrorBoundary>
++        )
++      ).toBe(escapedUnsafeHtml)
++    })
++
++    it('keeps the existing falsy fallbackRender behavior', async () => {
++      expect(
++        await stringify(
++          <ErrorBoundary fallbackRender={() => 0}>
++            <Broken />
++          </ErrorBoundary>
++        )
++      ).toBe('')
++    })
++
++    it('keeps a direct Promise child unchanged', async () => {
++      expect(
++        await stringify(
++          <ErrorBoundary fallback='error'>{Promise.resolve('resolved')}</ErrorBoundary>
++        )
++      ).toBe('[object Promise]')
++    })
++  })
+ })
+diff --git a/src/jsx/components.ts b/src/jsx/components.ts
+index b9d29048..f0f85d53 100644
+--- a/src/jsx/components.ts
++++ b/src/jsx/components.ts
+@@ -1,7 +1,7 @@
+ import { raw } from '../helper/html'
+ import type { HtmlEscapedCallback, HtmlEscapedString } from '../utils/html'
+ import { HtmlEscapedCallbackPhase, resolveCallback } from '../utils/html'
+-import { jsx, Fragment } from './base'
++import { jsx, Fragment, isUntrustedObject, renderChildren, renderUntrustedObject } from './base'
+ import { DOM_RENDERER } from './constants'
+ import { captureRenderContext, useContext } from './context'
+ import { ErrorBoundary as ErrorBoundaryDomRenderer } from './dom/components'
+@@ -13,9 +13,7 @@ let errorBoundaryCounter = 0
+ 
+ export const childrenToString = async (children: Child[]): Promise<HtmlEscapedString[]> => {
+   try {
+-    return children
+-      .flat()
+-      .map((c) => (c == null || typeof c === 'boolean' ? '' : c.toString())) as HtmlEscapedString[]
++    return children.flat().map(resolveChildEarly) as HtmlEscapedString[]
+   } catch (e) {
+     if (e instanceof Promise) {
+       // Capture before `await`: on the fallback path the render context is
+@@ -29,18 +27,16 @@ export const childrenToString = async (children: Child[]): Promise<HtmlEscapedSt
+   }
+ }
+ 
+-const resolveChildEarly = (c: Child): HtmlEscapedString | Promise<HtmlEscapedString> => {
+-  if (c == null || typeof c === 'boolean') {
++const resolveChildEarly = (child: Child): HtmlEscapedString | Promise<HtmlEscapedString> => {
++  if (child == null || typeof child === 'boolean') {
+     return '' as HtmlEscapedString
+-  } else if (typeof c === 'string') {
+-    return c as HtmlEscapedString
++  } else if (typeof child === 'string' || Array.isArray(child)) {
++    return renderChildren([child])
++  } else if (isUntrustedObject(child)) {
++    return renderUntrustedObject(child)
+   } else {
+-    const str = c.toString()
+-    if (!(str instanceof Promise)) {
+-      return raw(str)
+-    } else {
+-      return str as Promise<HtmlEscapedString>
+-    }
++    const str = child.toString()
++    return str instanceof Promise ? (str as Promise<HtmlEscapedString>) : raw(str)
+   }
+ }
+ 
+@@ -76,20 +72,21 @@ export const ErrorBoundary: FC<
+   const resolveFallbackStr = (): Promise<HtmlEscapedString | string | undefined> =>
+     (fallbackStrPromise ||= (async () => {
+       const awaitedFallback = await fallback
+-      if (typeof awaitedFallback === 'string') {
+-        return awaitedFallback
+-      } else {
+-        const fallbackResult = await getResume()(() => awaitedFallback?.toString())
+-        if (typeof fallbackResult === 'string') {
+-          // Don't apply `raw` to undefined/null/boolean. Preserve callbacks from
+-          // the stringified result, or the original thenable for plain strings.
+-          return raw(
+-            fallbackResult,
+-            (fallbackResult as HtmlEscapedString).callbacks ||
+-              (awaitedFallback as unknown as HtmlEscapedString)?.callbacks
+-          )
+-        }
++      if (awaitedFallback === null || awaitedFallback === undefined) {
++        return
++      }
++      if (typeof awaitedFallback === 'string' || Array.isArray(awaitedFallback)) {
++        return getResume()(() => renderChildren([awaitedFallback]))
+       }
++      if (isUntrustedObject(awaitedFallback)) {
++        return getResume()(() => renderUntrustedObject(awaitedFallback))
++      }
++      const fallbackResult = await getResume()(() => awaitedFallback.toString())
++      return raw(
++        fallbackResult,
++        (fallbackResult as HtmlEscapedString).callbacks ||
++          (awaitedFallback as unknown as HtmlEscapedString).callbacks
++      )
+     })())
+   const renderFallback = async (error: Error): Promise<HtmlEscapedString> => {
+     const fallbackStr = await resolveFallbackStr()
+@@ -100,9 +97,7 @@ export const ErrorBoundary: FC<
+           ? fallbackStr
+           : (fallbackRender && jsx(Fragment, {}, fallbackRender(error) as HtmlEscapedString)) || ''
+       ) as HtmlEscapedString
+-      const fallbackResString = await Fragment({
+-        children: fallbackRes,
+-      }).toString()
++      const fallbackResString = await Fragment({ children: fallbackRes }).toString()
+       return raw(
+         fallbackResString,
+         (fallbackResString as HtmlEscapedString).callbacks || fallbackRes.callbacks
+@@ -142,7 +137,7 @@ export const ErrorBoundary: FC<
+       const fallbackResString = await renderFallback(error)
+       const fallbackCallbacks = fallbackResString.callbacks
+       if (buffer) {
+-        buffer[0] = buffer[0].replace(replaceRe, fallbackResString)
++        buffer[0] = buffer[0].replace(replaceRe, () => fallbackResString)
+         return fallbackCallbacks?.length ? raw('', fallbackCallbacks) : ''
+       }
+       return raw(
+@@ -188,7 +183,7 @@ d.parentElement.insertBefore(c.content,d.nextSibling)
+ 
+             if (htmlArray.every((html) => !(html as HtmlEscapedString).callbacks?.length)) {
+               if (buffer) {
+-                buffer[0] = buffer[0].replace(replaceRe, content)
++                buffer[0] = buffer[0].replace(replaceRe, () => content)
+               }
+               return html
+             }
+diff --git a/src/jsx/context.ts b/src/jsx/context.ts
+index 9e26c3ef..cbd396e2 100644
+--- a/src/jsx/context.ts
++++ b/src/jsx/context.ts
+@@ -1,6 +1,6 @@
+ import { raw } from '../helper/html'
+ import type { HtmlEscapedString } from '../utils/html'
+-import { JSXFragmentNode } from './base'
++import { isUntrustedObject, JSXFragmentNode, renderChildren, renderUntrustedObject } from './base'
+ import { DOM_RENDERER } from './constants'
+ import { createContextProviderFunction } from './dom/context'
+ import type { FC, PropsWithChildren } from './'
+@@ -217,26 +217,31 @@ export const createContext = <T>(defaultValue: T): Context<T> => {
+     // below may run later and must operate on the same array as the push.
+     const contextValues = getContextValuesIn(getCurrentStore(), context)
+     contextValues.push(props.value)
+-    let string
++    let rendered
+     try {
+-      string = props.children
+-        ? (Array.isArray(props.children)
+-            ? new JSXFragmentNode('', {}, props.children)
++      rendered =
++        typeof props.children === 'string'
++          ? renderChildren([props.children])
++          : isUntrustedObject(props.children)
++            ? renderUntrustedObject(props.children)
+             : props.children
+-          ).toString()
+-        : ''
++              ? (Array.isArray(props.children)
++                  ? new JSXFragmentNode('', {}, props.children)
++                  : props.children
++                ).toString()
++              : raw('')
+     } catch (e) {
+       contextValues.pop()
+       throw e
+     }
+ 
+-    if (string instanceof Promise) {
+-      return string
++    if (rendered instanceof Promise) {
++      return rendered
+         .finally(() => contextValues.pop())
+         .then((resString) => raw(resString, (resString as HtmlEscapedString).callbacks))
+     } else {
+       contextValues.pop()
+-      return raw(string)
++      return raw(rendered)
+     }
+   }) as Context<T>
+   context.values = values
+diff --git a/src/jsx/dom/server.test.tsx b/src/jsx/dom/server.test.tsx
+index 85f21303..557753bf 100644
+--- a/src/jsx/dom/server.test.tsx
++++ b/src/jsx/dom/server.test.tsx
+@@ -1,6 +1,10 @@
+ /** @jsxImportSource ../ */
++import { raw } from '../../helper/html'
+ import { renderToReadableStream, renderToString } from './server'
+ 
++const unsafeHtml = '<img src=x onerror=alert(1)>'
++const escapedUnsafeHtml = '&lt;img src=x onerror=alert(1)&gt;'
++
+ describe('renderToString', () => {
+   it('Should be able to render HTML element', () => {
+     expect(renderToString(<h1>Hello</h1>)).toBe('<h1>Hello</h1>')
+@@ -22,6 +26,40 @@ describe('renderToString', () => {
+     expect(renderToString('Hono')).toBe('Hono')
+   })
+ 
++  it('Should escape a string root', () => {
++    expect(renderToString(unsafeHtml)).toBe(escapedUnsafeHtml)
++  })
++
++  it('Should preserve an explicitly trusted root', () => {
++    expect(renderToString(raw('<strong>trusted</strong>'))).toBe('<strong>trusted</strong>')
++  })
++
++  it('Should escape nested array roots without separators', () => {
++    expect(renderToString([unsafeHtml, [unsafeHtml]])).toBe(
++      `${escapedUnsafeHtml}${escapedUnsafeHtml}`
++    )
++  })
++
++  it('Should preserve trusted content in an array root', () => {
++    expect(renderToString([raw('<strong>trusted</strong>'), unsafeHtml])).toBe(
++      `<strong>trusted</strong>${escapedUnsafeHtml}`
++    )
++  })
++
++  it('Should reject an asynchronous array root', () => {
++    expect(() => renderToString([Promise.resolve(unsafeHtml)])).toThrow(
++      'Async component is not supported in renderToString'
++    )
++  })
++
++  it('Should keep non-string roots unchanged', () => {
++    const object = { toString: () => 'plain-text' }
++
++    expect(renderToString(10n as never)).toBe('10')
++    expect(renderToString(Symbol('value') as never)).toBe('Symbol(value)')
++    expect(renderToString(object as never)).toBe('plain-text')
++  })
++
+   it('Should omit options', () => {
+     expect(renderToString('Hono', { identifierPrefix: 'test' })).toBe('Hono')
+   })
+@@ -73,6 +111,39 @@ describe('renderToReadableStream', () => {
+     expect(await getStringFromStream(await renderToReadableStream('Hono'))).toBe('Hono')
+   })
+ 
++  it('Should escape a string root', async () => {
++    expect(await getStringFromStream(await renderToReadableStream(unsafeHtml))).toBe(
++      escapedUnsafeHtml
++    )
++  })
++
++  it('Should preserve an explicitly trusted root', async () => {
++    expect(
++      await getStringFromStream(await renderToReadableStream(raw('<strong>trusted</strong>')))
++    ).toBe('<strong>trusted</strong>')
++  })
++
++  it('Should escape synchronous and asynchronous array roots', async () => {
++    expect(
++      await getStringFromStream(await renderToReadableStream([unsafeHtml, [unsafeHtml]]))
++    ).toBe(`${escapedUnsafeHtml}${escapedUnsafeHtml}`)
++    expect(
++      await getStringFromStream(await renderToReadableStream([Promise.resolve(unsafeHtml)]))
++    ).toBe(escapedUnsafeHtml)
++  })
++
++  it('Should preserve trusted content in an array root', async () => {
++    expect(
++      await getStringFromStream(
++        await renderToReadableStream([raw('<strong>trusted</strong>'), unsafeHtml])
++      )
++    ).toBe(`<strong>trusted</strong>${escapedUnsafeHtml}`)
++  })
++
++  it('Should keep non-string roots unchanged', async () => {
++    expect(await getStringFromStream(await renderToReadableStream(10n as never))).toBe('10')
++  })
++
+   it('Should be called `onError` if there is an error', async () => {
+     const ErrorComponent = async () => {
+       throw new Error('Server error')
+diff --git a/src/jsx/dom/server.ts b/src/jsx/dom/server.ts
+index 8f02aaf3..93a16348 100644
+--- a/src/jsx/dom/server.ts
++++ b/src/jsx/dom/server.ts
+@@ -4,6 +4,7 @@
+  */
+ 
+ import type { HtmlEscapedString } from '../../utils/html'
++import { renderChildren } from '../base'
+ import type { Child } from '../base'
+ import { renderToReadableStream as renderToReadableStreamHono } from '../streaming'
+ import version from './'
+@@ -12,6 +13,9 @@ export interface RenderToStringOptions {
+   identifierPrefix?: string
+ }
+ 
++const prepareRoot = (element: Child): Child =>
++  typeof element === 'string' || Array.isArray(element) ? renderChildren([element]) : element
++
+ /**
+  * Render JSX element to string.
+  * @param element JSX element to render.
+@@ -22,7 +26,8 @@ const renderToString = (element: Child, options: RenderToStringOptions = {}): st
+   if (Object.keys(options).length > 0) {
+     console.warn('options are not supported yet')
+   }
+-  const res = element?.toString() ?? ''
++  element = prepareRoot(element)
++  const res = element instanceof Promise ? element : (element?.toString() ?? '')
+   if (typeof res !== 'string') {
+     throw new Error('Async component is not supported in renderToString')
+   }
+@@ -55,6 +60,7 @@ const renderToReadableStream = async (
+     console.warn('options are not supported yet, except onError')
+   }
+ 
++  element = prepareRoot(element)
+   if (!element || typeof element !== 'object') {
+     element = element?.toString() ?? ''
+   }
+diff --git a/src/jsx/index.test.tsx b/src/jsx/index.test.tsx
+index cdff3a72..dc3f1df1 100644
+--- a/src/jsx/index.test.tsx
++++ b/src/jsx/index.test.tsx
+@@ -1179,6 +1179,65 @@ describe('Context', () => {
+       expect(template.toString()).toBe('<div><span>dark</span>!</div><div><span>dark</span>!</div>')
+     })
+ 
++    it('escapes a single string child', async () => {
++      const template = (
++        <ThemeContext.Provider value='dark'>{'<img src=x onerror=alert(1)>'}</ThemeContext.Provider>
++      )
++
++      expect(String(await template.toString())).toBe('&lt;img src=x onerror=alert(1)&gt;')
++    })
++
++    it('escapes a string returned by an asynchronous child', async () => {
++      const Async = async () => '<img src=x onerror=alert(1)>' as any
++      const template = (
++        <ThemeContext.Provider value='dark'>
++          <Async />
++        </ThemeContext.Provider>
++      )
++
++      expect(String(await template.toString())).toBe('&lt;img src=x onerror=alert(1)&gt;')
++    })
++
++    it('preserves explicitly trusted content', async () => {
++      const template = (
++        <ThemeContext.Provider value='dark'>
++          {raw('<strong>trusted</strong>')}
++        </ThemeContext.Provider>
++      )
++
++      expect(await template.toString()).toBe('<strong>trusted</strong>')
++    })
++
++    it('escapes untrusted object stringification', async () => {
++      const object = { toString: () => '<img src=x onerror=alert(1)>' }
++      const asyncObject = { toString: async () => '<img src=x onerror=alert(1)>' }
++      const rawObject = { toString: () => raw('<img src=x onerror=alert(1)>') }
++
++      for (const child of [object, asyncObject, rawObject]) {
++        const template = (
++          <ThemeContext.Provider value='dark'>{child as never}</ThemeContext.Provider>
++        )
++        expect(String(await template.toString())).toBe('&lt;img src=x onerror=alert(1)&gt;')
++      }
++    })
++
++    it('continues to omit unsupported objects in child arrays', async () => {
++      const object = { toString: () => '<img src=x onerror=alert(1)>' }
++      const template = (
++        <ThemeContext.Provider value='dark'>{[object as never, 'safe']}</ThemeContext.Provider>
++      )
++
++      expect(await template.toString()).toBe('safe')
++    })
++
++    it('keeps a direct Promise child unchanged', async () => {
++      const template = (
++        <ThemeContext.Provider value='dark'>{Promise.resolve('resolved')}</ThemeContext.Provider>
++      )
++
++      expect(await template.toString()).toBe('[object Promise]')
++    })
++
+     it('nested', () => {
+       const template = (
+         <ThemeContext.Provider value='dark'>
+diff --git a/src/jsx/intrinsic-element/components.test.tsx b/src/jsx/intrinsic-element/components.test.tsx
+index bfb0a7ec..608a3eac 100644
+--- a/src/jsx/intrinsic-element/components.test.tsx
++++ b/src/jsx/intrinsic-element/components.test.tsx
+@@ -73,6 +73,31 @@ describe('intrinsic element', () => {
+         expect(html.toString()).toBe('<html><body><title>Hello</title><h1>World</h1></body></html>')
+         expect(html.toString()).not.toContain('[object Promise]')
+       })
++
++      it('should render a title with itemProp and async children', async () => {
++        const AsyncChild = async () => <>{'price < 100'}</>
++        const template = <title itemProp='name'>{<AsyncChild />}</title>
++
++        expect(String(await template.toString())).toBe(
++          '<title itemprop="name">price &lt; 100</title>'
++        )
++      })
++
++      it('should not interpret replacement patterns in a hoisted title', async () => {
++        const template = (
++          <html>
++            <head></head>
++            <body>
++              <title>{'price $< 100'}</title>
++            </body>
++          </html>
++        )
++        const rendered = await template.toString()
++
++        expect(await resolveCallback(rendered, HtmlEscapedCallbackPhase.Stringify, false, {})).toBe(
++          '<html><head><title>price $&lt; 100</title></head><body></body></html>'
++        )
++      })
+     })
+ 
+     describe('link element', () => {
+diff --git a/src/jsx/intrinsic-element/components.ts b/src/jsx/intrinsic-element/components.ts
+index b3866d6c..7821f1fd 100644
+--- a/src/jsx/intrinsic-element/components.ts
++++ b/src/jsx/intrinsic-element/components.ts
+@@ -1,6 +1,6 @@
+ import { raw } from '../../helper/html'
+ import type { HtmlEscapedCallback, HtmlEscapedString } from '../../utils/html'
+-import { JSXNode, getNameSpaceContext } from '../base'
++import { JSXNode, getNameSpaceContext, renderChildren } from '../base'
+ import type { Child, Props } from '../base'
+ import { toArray } from '../children'
+ import { PERMALINK } from '../constants'
+@@ -86,12 +86,12 @@ const insertIntoHead: (
+       insertTags.forEach((tag) => {
+         buffer[0] = buffer[0].replaceAll(tag, '')
+       })
+-      buffer[0] = buffer[0].replace(/(?=<\/head>)/, insertTags.join(''))
++      buffer[0] = buffer[0].replace(/(?=<\/head>)/, () => insertTags.join(''))
+     }
+   }
+ 
+ const returnWithoutSpecialBehavior = (tag: string, children: Child, props: Props) =>
+-  raw(new JSXNode(tag, props, toArray(children ?? [])).toString())
++  renderChildren([new JSXNode(tag, props, toArray(children ?? []))])
+ 
+ const documentMetadataTag = (tag: string, children: Child, props: Props, sort: boolean) => {
+   if ('itemProp' in props) {
+diff --git a/src/jsx/streaming.test.tsx b/src/jsx/streaming.test.tsx
+index b64a5eb2..e5821988 100644
+--- a/src/jsx/streaming.test.tsx
++++ b/src/jsx/streaming.test.tsx
+@@ -9,6 +9,9 @@ import { buildDataStack } from './dom/render'
+ import { use } from './hooks'
+ import { Suspense, renderToReadableStream, StreamingContext } from './streaming'
+ 
++const unsafeHtml = '<img src=x onerror=alert(1)>'
++const escapedUnsafeHtml = '&lt;img src=x onerror=alert(1)&gt;'
++
+ function replacementResult(html: string) {
+   const document = new JSDOM(html, { runScripts: 'dangerously' }).window.document
+   document.querySelectorAll('template, script').forEach((e) => e.remove())
+@@ -24,6 +27,33 @@ async function drainStream(stream: unknown): Promise<string> {
+   return html
+ }
+ 
++async function stringify(node: { toString(): string | Promise<string> }): Promise<string> {
++  return String(
++    await resolveCallback(await node.toString(), HtmlEscapedCallbackPhase.Stringify, false, {})
++  )
++}
++
++async function readInitialSuspenseChunk(fallback: unknown): Promise<string> {
++  let resolve!: () => void
++  const promise = new Promise<void>((done) => (resolve = done))
++  const Async = async () => {
++    await promise
++    return <span>done</span>
++  }
++  const reader = renderToReadableStream(
++    <Suspense fallback={fallback}>
++      <Async />
++    </Suspense>
++  ).getReader()
++
++  const first = await reader.read()
++  resolve()
++  while (!(await reader.read()).done) {
++    // Drain the retry so it cannot outlive the test.
++  }
++  return new TextDecoder().decode(first.value)
++}
++
+ describe('Streaming', () => {
+   let suspenseCounter = 0
+   afterEach(() => {
+@@ -1154,4 +1184,98 @@ d.replaceWith(c.content)
+     expect(guestHtml).toContain('role:guest')
+     expect(guestHtml).not.toContain('role:admin')
+   })
++
++  describe('escaping', () => {
++    it('escapes string children with an asynchronous sibling', async () => {
++      const Async = async () => <span>done</span>
++      const node = (
++        <Suspense fallback='loading'>
++          {unsafeHtml}
++          <Async />
++        </Suspense>
++      )
++
++      expect(await stringify(node)).toBe(`${escapedUnsafeHtml}<span>done</span>`)
++      const streamed = await drainStream(renderToReadableStream(node))
++      expect(streamed).toContain(escapedUnsafeHtml)
++      expect(streamed).not.toContain(unsafeHtml)
++    })
++
++    it('escapes nested array strings', async () => {
++      expect(await stringify(<Suspense fallback='loading'>{[[[unsafeHtml]]]}</Suspense>)).toBe(
++        escapedUnsafeHtml
++      )
++    })
++
++    it('escapes a primitive fallback in the initial stream chunk', async () => {
++      const initialChunk = await readInitialSuspenseChunk(unsafeHtml)
++
++      expect(initialChunk).toContain(escapedUnsafeHtml)
++      expect(initialChunk).not.toContain(unsafeHtml)
++    })
++
++    it('escapes untrusted object fallbacks', async () => {
++      const object = { toString: () => unsafeHtml }
++      const asyncObject = { toString: async () => unsafeHtml }
++      const rawObject = { toString: () => raw(unsafeHtml) }
++
++      for (const fallback of [object, asyncObject, rawObject]) {
++        const initialChunk = await readInitialSuspenseChunk(fallback)
++        expect(initialChunk).toContain(escapedUnsafeHtml)
++        expect(initialChunk).not.toContain(unsafeHtml)
++      }
++    })
++
++    it('preserves an explicitly trusted fallback', async () => {
++      expect(await readInitialSuspenseChunk(raw('<strong>trusted</strong>'))).toContain(
++        '<strong>trusted</strong>'
++      )
++    })
++
++    it('does not interpret replacement patterns in content', async () => {
++      const content = "literal $& $` $'"
++      const Async = async () => <span>done</span>
++
++      expect(
++        await stringify(
++          <Suspense fallback='loading'>
++            {content}
++            <Async />
++          </Suspense>
++        )
++      ).toBe('literal $&amp; $` $&#39;<span>done</span>')
++    })
++
++    it('escapes untrusted object children', async () => {
++      const object = { toString: () => unsafeHtml }
++      const asyncObject = { toString: async () => unsafeHtml }
++      const rawObject = { toString: () => raw(unsafeHtml) }
++
++      for (const child of [object, asyncObject, rawObject]) {
++        const node = <Suspense fallback='loading'>{child as never}</Suspense>
++        expect(await stringify(node)).toBe(escapedUnsafeHtml)
++        const streamed = await drainStream(renderToReadableStream(node))
++        expect(streamed).toContain(escapedUnsafeHtml)
++        expect(streamed).not.toContain(unsafeHtml)
++      }
++    })
++
++    it('preserves explicitly trusted children', async () => {
++      expect(
++        await stringify(<Suspense fallback='loading'>{raw('<strong>trusted</strong>')}</Suspense>)
++      ).toBe('<strong>trusted</strong>')
++    })
++
++    it('keeps benign object stringification visible', async () => {
++      expect(await stringify(<Suspense fallback='loading'>{{} as never}</Suspense>)).toBe(
++        '[object Object]'
++      )
++    })
++
++    it('keeps a direct Promise child unchanged', async () => {
++      expect(
++        await stringify(<Suspense fallback='loading'>{Promise.resolve('resolved')}</Suspense>)
++      ).toBe('[object Promise]')
++    })
++  })
+ })
+diff --git a/src/jsx/streaming.ts b/src/jsx/streaming.ts
+index 424a01a3..cbdc54af 100644
+--- a/src/jsx/streaming.ts
++++ b/src/jsx/streaming.ts
+@@ -6,7 +6,7 @@
+ import { raw } from '../helper/html'
+ import { HtmlEscapedCallbackPhase, resolveCallback } from '../utils/html'
+ import type { HtmlEscapedString } from '../utils/html'
+-import { JSXNode } from './base'
++import { isUntrustedObject, JSXNode, renderChildren, renderUntrustedObject } from './base'
+ import { childrenToString } from './components'
+ import { DOM_RENDERER, DOM_STASH } from './constants'
+ import { captureRenderContext, createContext, useContext } from './context'
+@@ -33,6 +33,15 @@ export const StreamingContext: JSXContext<{ scriptNonce: string } | null> = crea
+ 
+ let suspenseCounter = 0
+ 
++const serializeBoundaryChild = (child: Child): string | Promise<string> =>
++  typeof child === 'string' || Array.isArray(child)
++    ? renderChildren([child])
++    : child == null || typeof child === 'boolean'
++      ? ''
++      : isUntrustedObject(child)
++        ? renderUntrustedObject(child)
++        : child.toString()
++
+ /**
+  * @experimental
+  * `Suspense` is an experimental feature.
+@@ -60,9 +69,7 @@ export const Suspense: FC<PropsWithChildren<{ fallback: any }>> = async ({
+   try {
+     stackNode[DOM_STASH][0] = 0
+     buildDataStack.push([[], stackNode])
+-    resArray = children.map((c) =>
+-      c == null || typeof c === 'boolean' ? '' : c.toString()
+-    ) as HtmlEscapedString[]
++    resArray = children.map(serializeBoundaryChild) as HtmlEscapedString[]
+   } catch (e) {
+     if (e instanceof Promise) {
+       // Capture before deferring: on the fallback path the render context is
+@@ -86,7 +93,11 @@ export const Suspense: FC<PropsWithChildren<{ fallback: any }>> = async ({
+ 
+   if (resArray.some((res) => (res as {}) instanceof Promise)) {
+     const index = suspenseCounter++
+-    const fallbackStr = await fallback.toString()
++    const fallbackStr = await (typeof fallback === 'string' || Array.isArray(fallback)
++      ? renderChildren([fallback])
++      : isUntrustedObject(fallback)
++        ? renderUntrustedObject(fallback)
++        : fallback.toString())
+     return raw(`<template id="H:${index}"></template>${fallbackStr}<!--/$-->`, [
+       ...(fallbackStr.callbacks || []),
+       ({ phase, buffer, context }) => {
+@@ -99,7 +110,7 @@ export const Suspense: FC<PropsWithChildren<{ fallback: any }>> = async ({
+           if (buffer) {
+             buffer[0] = buffer[0].replace(
+               new RegExp(`<template id="H:${index}"></template>.*?<!--/\\$-->`),
+-              content
++              () => content
+             )
+           }
+           let html = buffer

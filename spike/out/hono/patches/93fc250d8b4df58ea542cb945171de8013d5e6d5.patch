@@ -1,0 +1,31 @@
+diff --git a/src/middleware/cors/index.test.ts b/src/middleware/cors/index.test.ts
+index 037841da..de81bd41 100644
+--- a/src/middleware/cors/index.test.ts
++++ b/src/middleware/cors/index.test.ts
+@@ -158,6 +158,13 @@ describe('CORS by Middleware', () => {
+     ])
+   })
+ 
++  it('Preflight handles a large Access-Control-Request-Headers value', async () => {
++    const req = new Request('https://localhost/api/abc', { method: 'OPTIONS' })
++    req.headers.append('Access-Control-Request-Headers', 'x' + ' '.repeat(200000) + 'x')
++    const res = await app.request(req)
++    expect(res.status).toBe(204)
++  })
++
+   it('Preflight with options', async () => {
+     const req = new Request('https://localhost/api2/abc', {
+       method: 'OPTIONS',
+diff --git a/src/middleware/cors/index.ts b/src/middleware/cors/index.ts
+index a2333e0d..48ea57fa 100644
+--- a/src/middleware/cors/index.ts
++++ b/src/middleware/cors/index.ts
+@@ -129,7 +129,7 @@ export const cors = (options?: CORSOptions): MiddlewareHandler => {
+       if (!headers?.length) {
+         const requestHeaders = c.req.header('Access-Control-Request-Headers')
+         if (requestHeaders) {
+-          headers = requestHeaders.split(/\s*,\s*/)
++          headers = requestHeaders.split(',').map((h) => h.trim())
+         }
+       }
+       if (headers?.length) {

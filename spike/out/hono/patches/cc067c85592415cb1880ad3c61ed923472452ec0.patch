@@ -1,0 +1,111 @@
+diff --git a/src/utils/cookie.test.ts b/src/utils/cookie.test.ts
+index 525e7cd7..e521cdf3 100644
+--- a/src/utils/cookie.test.ts
++++ b/src/utils/cookie.test.ts
+@@ -9,6 +9,13 @@ describe('Parse cookie', () => {
+     expect(cookie['tasty_cookie']).toBe('strawberry')
+   })
+ 
++  it('Should trim only SP and HTAB around cookie pairs', () => {
++    const cookieString = '\tyummy_cookie=choco;\t tasty_cookie = strawberry \t'
++    const cookie: Cookie = parse(cookieString)
++    expect(cookie['yummy_cookie']).toBe('choco')
++    expect(cookie['tasty_cookie']).toBe('strawberry')
++  })
++
+   it('Should parse quoted cookie values', () => {
+     const cookieString =
+       'yummy_cookie="choco"; tasty_cookie = " strawberry " ; best_cookie="%20sugar%20";'
+@@ -81,6 +88,19 @@ describe('Parse cookie', () => {
+     expect(cookie['best_cookie\\']).toBeUndefined()
+   })
+ 
++  it('Should ignore NBSP-prefixed cookie names when parsing one cookie by name', () => {
++    const cookieString = '\u00a0dummy-cookie=evil; dummy-cookie=victim'
++    const cookie: Cookie = parse(cookieString, 'dummy-cookie')
++    expect(cookie['dummy-cookie']).toBe('victim')
++  })
++
++  it('Should not collapse NBSP-prefixed cookie names when parsing all cookies', () => {
++    const cookieString = 'dummy-cookie=victim; \u00a0dummy-cookie=evil'
++    const cookie: Cookie = parse(cookieString)
++    expect(cookie['dummy-cookie']).toBe('victim')
++    expect(cookie['\u00a0dummy-cookie']).toBeUndefined()
++  })
++
+   it('Should parse signed cookies', async () => {
+     const secret = 'secret ingredient'
+     const cookieString =
+@@ -159,6 +179,14 @@ describe('Parse cookie', () => {
+     expect(cookie['tasty_cookie']).toBe('strawberry')
+     expect(cookie['great_cookie']).toBeUndefined()
+   })
++
++  it('Should ignore NBSP-prefixed signed cookie names when parsing one cookie by name', async () => {
++    const secret = 'secret ingredient'
++    const cookieString =
++      '\u00a0dummy-cookie=evil.UdFR2rBpS1GsHfGlUiYyMIdqxqwuEgplyQIgTJgpGWY%3D; dummy-cookie=choco.UdFR2rBpS1GsHfGlUiYyMIdqxqwuEgplyQIgTJgpGWY%3D'
++    const cookie: SignedCookie = await parseSigned(cookieString, secret, 'dummy-cookie')
++    expect(cookie['dummy-cookie']).toBe('choco')
++  })
+ })
+ 
+ describe('Set cookie', () => {
+diff --git a/src/utils/cookie.ts b/src/utils/cookie.ts
+index bd22eca4..f9147fe2 100644
+--- a/src/utils/cookie.ts
++++ b/src/utils/cookie.ts
+@@ -76,26 +76,48 @@ const validCookieNameRegEx = /^[\w!#$%&'*.^`|~+-]+$/
+ // (see: https://github.com/golang/go/issues/7243)
+ const validCookieValueRegEx = /^[ !#-:<-[\]-~]*$/
+ 
++const trimCookieWhitespace = (value: string): string => {
++  let start = 0
++  let end = value.length
++
++  while (start < end) {
++    const charCode = value.charCodeAt(start)
++    if (charCode !== 0x20 && charCode !== 0x09) {
++      break
++    }
++    start++
++  }
++
++  while (end > start) {
++    const charCode = value.charCodeAt(end - 1)
++    if (charCode !== 0x20 && charCode !== 0x09) {
++      break
++    }
++    end--
++  }
++
++  return start === 0 && end === value.length ? value : value.slice(start, end)
++}
++
+ export const parse = (cookie: string, name?: string): Cookie => {
+   if (name && cookie.indexOf(name) === -1) {
+     // Fast-path: return immediately if the demanded-key is not in the cookie string
+     return {}
+   }
+-  const pairs = cookie.trim().split(';')
++  const pairs = cookie.split(';')
+   const parsedCookie: Cookie = {}
+-  for (let pairStr of pairs) {
+-    pairStr = pairStr.trim()
++  for (const pairStr of pairs) {
+     const valueStartPos = pairStr.indexOf('=')
+     if (valueStartPos === -1) {
+       continue
+     }
+ 
+-    const cookieName = pairStr.substring(0, valueStartPos).trim()
++    const cookieName = trimCookieWhitespace(pairStr.substring(0, valueStartPos))
+     if ((name && name !== cookieName) || !validCookieNameRegEx.test(cookieName)) {
+       continue
+     }
+ 
+-    let cookieValue = pairStr.substring(valueStartPos + 1).trim()
++    let cookieValue = trimCookieWhitespace(pairStr.substring(valueStartPos + 1))
+     if (cookieValue.startsWith('"') && cookieValue.endsWith('"')) {
+       cookieValue = cookieValue.slice(1, -1)
+     }

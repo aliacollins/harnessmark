@@ -1,0 +1,34 @@
+diff --git a/src/client/utils.test.ts b/src/client/utils.test.ts
+index 5b532b94..7cbad86f 100644
+--- a/src/client/utils.test.ts
++++ b/src/client/utils.test.ts
+@@ -64,6 +64,16 @@ describe('replaceUrlParams', () => {
+     const replacedUrl = replaceUrlParam(url, params)
+     expect(replacedUrl).toBe('http://localhost/something/123/456')
+   })
++
++  it('Should not replace a param whose name is a prefix of another param', () => {
++    const url = 'http://localhost/:idType/:id'
++    const params = {
++      id: '1',
++      idType: '2',
++    }
++    const replacedUrl = replaceUrlParam(url, params)
++    expect(replacedUrl).toBe('http://localhost/2/1')
++  })
+ })
+ 
+ describe('buildSearchParams', () => {
+diff --git a/src/client/utils.ts b/src/client/utils.ts
+index 93201bea..650bf849 100644
+--- a/src/client/utils.ts
++++ b/src/client/utils.ts
+@@ -17,7 +17,7 @@ export const mergePath = (base: string, path: string) => {
+ 
+ export const replaceUrlParam = (urlString: string, params: Record<string, string | undefined>) => {
+   for (const [k, v] of Object.entries(params)) {
+-    const reg = new RegExp('/:' + k + '(?:{[^/]+})?\\??')
++    const reg = new RegExp('/:' + k + '(?:{[^/]+})?\\??(?=/|$)')
+     urlString = urlString.replace(reg, v ? `/${v}` : '')
+   }
+   return urlString

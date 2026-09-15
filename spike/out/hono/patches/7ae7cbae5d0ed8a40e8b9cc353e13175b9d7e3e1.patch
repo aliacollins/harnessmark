@@ -1,0 +1,105 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index 6f718a33..9440ee54 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -1,3 +1,4 @@
++import { setCookie } from '../../helper/cookie'
+ import { Hono } from '../../hono'
+ import type { LambdaEvent, LatticeProxyEventV2 } from './handler'
+ import {
+@@ -396,6 +397,63 @@ describe('handle', () => {
+     expect(result.body).toBe('Invalid request')
+   })
+ 
++  it('ALB single-header: emits the first Set-Cookie intact, never comma-joined', async () => {
++    const app = new Hono()
++    app.get('/multi-cookie', (c) => {
++      setCookie(c, 'session', 'abc123', { expires: new Date('2026-06-09T00:00:00Z') })
++      setCookie(c, 'csrf', 'xyz789', { expires: new Date('2026-06-10T00:00:00Z') })
++      return c.text('ok')
++    })
++    const handler = handle(app)
++
++    const event = {
++      httpMethod: 'GET',
++      path: '/multi-cookie',
++      headers: { host: 'app.example.com' },
++      body: null,
++      isBase64Encoded: false,
++      requestContext: { elb: { targetGroupArn: 'arn:aws:elasticloadbalancing:...' } },
++    } as unknown as LambdaEvent
++
++    const result = await handler(event)
++
++    expect(result.headers!['set-cookie']).toBe(
++      'session=abc123; Path=/; Expires=Tue, 09 Jun 2026 00:00:00 GMT'
++    )
++  })
++
++  it('Lattice v2: emits multiple Set-Cookie as an array', async () => {
++    const app = new Hono()
++    app.get('/multi-cookie', (c) => {
++      setCookie(c, 'session', 'abc123')
++      setCookie(c, 'csrf', 'xyz789')
++      return c.text('ok')
++    })
++    const handler = handle(app)
++
++    const event: LatticeProxyEventV2 = {
++      version: '2.0',
++      path: '/multi-cookie',
++      method: 'GET',
++      headers: { host: ['app.example.com'] },
++      queryStringParameters: {},
++      body: null,
++      isBase64Encoded: false,
++      requestContext: {
++        serviceNetworkArn: '',
++        serviceArn: 'arn:aws:vpc-lattice:us-east-1:123456789012:service/svc-0a40',
++        targetGroupArn: '',
++        identity: {},
++        region: 'us-east-1',
++        timeEpoch: '1583348638390123',
++      },
++    }
++
++    const result = await handler(event)
++
++    expect(result.headers!['set-cookie']).toEqual(['session=abc123; Path=/', 'csrf=xyz789; Path=/'])
++  })
++
+   it('Should return 400 when request contains invalid header names (v1)', async () => {
+     const app = new Hono()
+     app.get('/my/path', (c) => c.text('Hello'))
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 283dd8c8..e52f362a 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -97,7 +97,7 @@ export interface ALBProxyEvent {
+ }
+ 
+ type WithHeaders = {
+-  headers: Record<string, string>
++  headers: Record<string, string | string[]>
+   multiValueHeaders?: undefined
+ }
+ type WithMultiValueHeaders = {
+@@ -577,8 +577,7 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+     if (result.multiValueHeaders) {
+       result.multiValueHeaders['set-cookie'] = cookies
+     } else {
+-      // otherwise serialize the set-cookie
+-      result.headers['set-cookie'] = cookies.join(', ')
++      result.headers['set-cookie'] = cookies[0]
+     }
+   }
+ }
+@@ -626,7 +625,7 @@ export class LatticeV2Processor extends EventProcessor<LatticeProxyEventV2> {
+   protected setCookiesToResult(result: APIGatewayProxyResult, cookies: string[]): void {
+     result.headers = {
+       ...result.headers,
+-      'set-cookie': cookies.join(', '),
++      'set-cookie': cookies,
+     }
+   }
+ }

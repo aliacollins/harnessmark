@@ -1,0 +1,87 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index 28b9beb1..425aaa7e 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -289,4 +289,21 @@ describe('EventProcessor.createRequest', () => {
+       header2: 'value1,value2',
+     })
+   })
++
++  describe('non-ASCII header value processing', () => {
++    it('Should encode non-ASCII header values with encodeURIComponent', async () => {
++      const event: LambdaEvent = {
++        ...baseV1Event,
++        headers: {
++          'x-city': '炎', // Non-ASCII character
++        },
++      }
++
++      const processor = getProcessor(event)
++      const request = processor.createRequest(event)
++
++      const xCity = request.headers.get('x-city') ?? ''
++      expect(decodeURIComponent(xCity)).toBe('炎')
++    })
++  })
+ })
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 2c79e7e8..0f9436e6 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -9,6 +9,16 @@ import type {
+   LambdaContext,
+ } from './types'
+ 
++function sanitizeHeaderValue(value: string): string {
++  // Check if the value contains non-ASCII characters (char codes > 127)
++  // eslint-disable-next-line no-control-regex
++  const hasNonAscii = /[^\x00-\x7F]/.test(value)
++  if (!hasNonAscii) {
++    return value
++  }
++  return encodeURIComponent(value)
++}
++
+ export type LambdaEvent = APIGatewayProxyEvent | APIGatewayProxyEventV2 | ALBProxyEvent
+ 
+ // When calling HTTP API or Lambda directly through function urls
+@@ -414,7 +424,7 @@ export class EventV1Processor extends EventProcessor<Exclude<LambdaEvent, APIGat
+     if (event.headers) {
+       for (const [k, v] of Object.entries(event.headers)) {
+         if (v) {
+-          headers.set(k, v)
++          headers.set(k, sanitizeHeaderValue(v))
+         }
+       }
+     }
+@@ -423,7 +433,12 @@ export class EventV1Processor extends EventProcessor<Exclude<LambdaEvent, APIGat
+         if (values) {
+           // avoid duplicating already set headers
+           const foundK = headers.get(k)
+-          values.forEach((v) => (!foundK || !foundK.includes(v)) && headers.append(k, v))
++          values.forEach((v) => {
++            const sanitizedValue = sanitizeHeaderValue(v)
++            return (
++              (!foundK || !foundK.includes(sanitizedValue)) && headers.append(k, sanitizedValue)
++            )
++          })
+         }
+       }
+     }
+@@ -448,13 +463,14 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+       for (const [key, values] of Object.entries(event.multiValueHeaders)) {
+         if (values && Array.isArray(values)) {
+           // https://www.rfc-editor.org/rfc/rfc9110.html#name-common-rules-for-defining-f
+-          headers.set(key, values.join('; '))
++          const sanitizedValue = sanitizeHeaderValue(values.join('; '))
++          headers.set(key, sanitizedValue)
+         }
+       }
+     } else {
+       for (const [key, value] of Object.entries(event.headers ?? {})) {
+         if (value) {
+-          headers.set(key, value)
++          headers.set(key, sanitizeHeaderValue(value))
+         }
+       }
+     }

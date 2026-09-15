@@ -1,0 +1,82 @@
+diff --git a/src/client/client.test.ts b/src/client/client.test.ts
+index 3d92d54e..03820d70 100644
+--- a/src/client/client.test.ts
++++ b/src/client/client.test.ts
+@@ -1784,6 +1784,31 @@ describe('WebSocket Provider Integration', () => {
+   })
+ })
+ 
++describe('Query arrays containing undefined', () => {
++  // A validator whose query field is an optional union gives the client an input
++  // type of `(string | undefined)[] | undefined`, so this compiles with no cast.
++  const app = new Hono().get(
++    '/search',
++    validator('query', () => ({}) as { tag: (string | undefined)[] | undefined }),
++    (c) => c.json({ ok: true })
++  )
++  type AppType = typeof app
++
++  it('Should not send the literal string "undefined" for an absent entry', async () => {
++    let requestedUrl = ''
++    const client = hc<AppType>('http://localhost', {
++      fetch: (input: RequestInfo | URL) => {
++        requestedUrl = input.toString()
++        return Promise.resolve(new Response('{}'))
++      },
++    })
++
++    await client.search.$get({ query: { tag: ['a', undefined, 'b'] } })
++
++    expect(requestedUrl).toBe('http://localhost/search?tag=a&tag=b')
++  })
++})
++
+ describe('Custom buildSearchParams', () => {
+   const app = new Hono()
+   const route = app.get(
+diff --git a/src/client/utils.test.ts b/src/client/utils.test.ts
+index 5257cb85..2b254baa 100644
+--- a/src/client/utils.test.ts
++++ b/src/client/utils.test.ts
+@@ -101,6 +101,27 @@ describe('buildSearchParams', () => {
+     const searchParams = buildSearchParams(query)
+     expect(searchParams.toString()).toBe('id=123&type=test&tag=a&tag=b')
+   })
++
++  it('Should skip an undefined entry inside an array, as it does for a top-level value', () => {
++    // `['a', undefined, 'b']` used to serialise as `tag=a&tag=undefined&tag=b`,
++    // sending the literal string "undefined" to the server.
++    const searchParams = buildSearchParams({
++      tag: ['a', undefined as unknown as string, 'b'],
++    })
++    expect(searchParams.toString()).toBe('tag=a&tag=b')
++  })
++
++  it('Should keep an empty string in an array', () => {
++    const searchParams = buildSearchParams({ tag: ['a', '', 'b'] })
++    expect(searchParams.toString()).toBe('tag=a&tag=&tag=b')
++  })
++
++  it('Should drop an array whose entries are all undefined', () => {
++    const searchParams = buildSearchParams({
++      tag: [undefined, undefined] as unknown as string[],
++    })
++    expect(searchParams.toString()).toBe('')
++  })
+ })
+ 
+ describe('replaceUrlProtocol', () => {
+diff --git a/src/client/utils.ts b/src/client/utils.ts
+index 7baed434..d4104e46 100644
+--- a/src/client/utils.ts
++++ b/src/client/utils.ts
+@@ -33,6 +33,9 @@ export const buildSearchParams = (query: Record<string, string | string[]>) => {
+ 
+     if (Array.isArray(v)) {
+       for (const v2 of v) {
++        if (v2 === undefined) {
++          continue
++        }
+         searchParams.append(k, v2)
+       }
+     } else {

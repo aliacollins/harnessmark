@@ -1,0 +1,155 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index 9440ee54..d7d76ef9 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -1,5 +1,6 @@
+ import { setCookie } from '../../helper/cookie'
+ import { Hono } from '../../hono'
++import { bodyLimit } from '../../middleware/body-limit'
+ import type { LambdaEvent, LatticeProxyEventV2 } from './handler'
+ import {
+   getProcessor,
+@@ -297,6 +298,7 @@ describe('EventProcessor.createRequest', () => {
+       'https://id.execute-api.us-east-1.amazonaws.com/my/path?parameter1=value1&parameter1=value2&parameter2=value'
+     )
+     expect(Object.fromEntries(request.headers)).toEqual({
++      'content-length': '17',
+       'content-type': 'application/json',
+       cookie: 'cookie1; cookie2',
+       header1: 'value1',
+@@ -342,6 +344,7 @@ describe('EventProcessor.createRequest', () => {
+       'https://my-service-a1b2c3.x1y2z3.vpc-lattice-svcs.us-east-1.on.aws/my/path?parameter1=value1&parameter1=value2&parameter2=value'
+     )
+     expect(Object.fromEntries(request.headers)).toEqual({
++      'content-length': '17',
+       'content-type': 'application/x-www-form-urlencoded',
+       cookie: 'cookie1=value1; cookie2=value2',
+       header1: 'value1',
+@@ -473,4 +476,34 @@ describe('handle', () => {
+     expect(result.statusCode).toBe(400)
+     expect(result.body).toBe('Invalid request')
+   })
++
++  it('Should enforce bodyLimit when the client understates Content-Length', async () => {
++    const app = new Hono()
++    app.post(
++      '/upload',
++      bodyLimit({ maxSize: 1024, onError: (c) => c.text('too large', 413) }),
++      async (c) => c.json({ received: (await c.req.text()).length })
++    )
++    const handler = handle(app)
++
++    const event: LambdaEvent = {
++      ...baseV2Event,
++      rawPath: '/upload',
++      headers: { 'content-type': 'text/plain', 'content-length': '1' },
++      body: 'A'.repeat(10000),
++      requestContext: {
++        ...baseV2Event.requestContext,
++        http: {
++          method: 'POST',
++          path: '/upload',
++          protocol: 'HTTP/1.1',
++          sourceIp: '192.0.2.1',
++          userAgent: 'agent',
++        },
++      },
++    }
++
++    const result = await handler(event)
++    expect(result.statusCode).toBe(413)
++  })
+ })
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index e52f362a..4abb62bc 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -331,7 +331,11 @@ export abstract class EventProcessor<E extends LambdaEvent> {
+     }
+ 
+     if (event.body) {
+-      requestInit.body = event.isBase64Encoded ? decodeBase64(event.body) : event.body
++      const body = event.isBase64Encoded
++        ? decodeBase64(event.body)
++        : new TextEncoder().encode(event.body)
++      requestInit.body = body
++      headers.set('content-length', body.length.toString())
+     }
+ 
+     return new Request(url, requestInit)
+diff --git a/src/adapter/lambda-edge/handler.test.ts b/src/adapter/lambda-edge/handler.test.ts
+index a6617bf0..df93033d 100644
+--- a/src/adapter/lambda-edge/handler.test.ts
++++ b/src/adapter/lambda-edge/handler.test.ts
+@@ -1,6 +1,7 @@
+ import { describe } from 'vitest'
+ import { setCookie } from '../../helper/cookie'
+ import { Hono } from '../../hono'
++import { bodyLimit } from '../../middleware/body-limit'
+ import { encodeBase64 } from '../../utils/encode'
+ import type { Callback, CloudFrontEdgeEvent } from './handler'
+ import { createBody, handle, isContentTypeBinary } from './handler'
+@@ -182,4 +183,43 @@ describe('handle', () => {
+       ],
+     })
+   })
++
++  it('Should enforce bodyLimit when the client understates Content-Length', async () => {
++    const app = new Hono()
++    app.post(
++      '/upload',
++      bodyLimit({ maxSize: 1024, onError: (c) => c.text('too large', 413) }),
++      async (c) => c.json({ received: (await c.req.text()).length })
++    )
++    const handler = handle(app)
++
++    const event: CloudFrontEdgeEvent = {
++      Records: [
++        {
++          cf: {
++            ...cloudFrontEdgeEvent.Records[0].cf,
++            request: {
++              ...cloudFrontEdgeEvent.Records[0].cf.request,
++              method: 'POST',
++              uri: '/upload',
++              headers: {
++                host: [{ key: 'Host', value: 'hono.dev' }],
++                'content-type': [{ key: 'Content-Type', value: 'text/plain' }],
++                'content-length': [{ key: 'Content-Length', value: '1' }],
++              },
++              body: {
++                inputTruncated: false,
++                action: 'read-only',
++                encoding: 'text',
++                data: 'A'.repeat(10000),
++              },
++            },
++          },
++        },
++      ],
++    }
++
++    const res = await handler(event)
++    expect(res.status).toBe('413')
++  })
+ })
+diff --git a/src/adapter/lambda-edge/handler.ts b/src/adapter/lambda-edge/handler.ts
+index c512d2ec..3bb4a863 100644
+--- a/src/adapter/lambda-edge/handler.ts
++++ b/src/adapter/lambda-edge/handler.ts
+@@ -164,7 +164,14 @@ const createRequest = (event: CloudFrontEdgeEvent): Request => {
+ 
+   const requestBody = event.Records[0].cf.request.body
+   const method = event.Records[0].cf.request.method
+-  const body = createBody(method, requestBody)
++  const rawBody = createBody(method, requestBody)
++
++  let body: string | Uint8Array<ArrayBuffer> | undefined = rawBody
++  if (rawBody !== undefined) {
++    const bytes = typeof rawBody === 'string' ? new TextEncoder().encode(rawBody) : rawBody
++    body = bytes
++    headers.set('content-length', bytes.length.toString())
++  }
+ 
+   return new Request(url, {
+     headers,

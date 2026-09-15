@@ -1,0 +1,61 @@
+diff --git a/src/helper/proxy/index.test.ts b/src/helper/proxy/index.test.ts
+index 4d295120..53d7c2ee 100644
+--- a/src/helper/proxy/index.test.ts
++++ b/src/helper/proxy/index.test.ts
+@@ -50,6 +50,16 @@ describe('Proxy Middleware', () => {
+               },
+             })
+           )
++        } else if (req.url === 'https://example.com/connection-listed') {
++          return Promise.resolve(
++            new Response('ok', {
++              headers: {
++                Connection: 'x-connection-scoped, bad name',
++                'X-Connection-Scoped': 'should not be forwarded',
++                'X-Normal': 'kept',
++              },
++            })
++          )
+         } else if (req.url === 'https://example.com/set-cookie') {
+           return Promise.resolve(
+             new Response('ok', {
+@@ -233,6 +243,16 @@ describe('Proxy Middleware', () => {
+       expect(res.headers.get('Transfer-Encoding')).toBeNull()
+     })
+ 
++    it('remove response headers listed in the Connection header', async () => {
++      const app = new Hono()
++      app.get('/proxy/:path', (c) => proxy(`https://example.com/${c.req.param('path')}`))
++      const res = await app.request('/proxy/connection-listed')
++      expect(res.status).toBe(200)
++      expect(res.headers.get('Connection')).toBeNull()
++      expect(res.headers.get('X-Connection-Scoped')).toBeNull()
++      expect(res.headers.get('X-Normal')).toBe('kept')
++    })
++
+     it('modify header', async () => {
+       const app = new Hono()
+       app.get('/proxy/:path', (c) =>
+diff --git a/src/helper/proxy/index.ts b/src/helper/proxy/index.ts
+index 40a812a5..c8e873ac 100644
+--- a/src/helper/proxy/index.ts
++++ b/src/helper/proxy/index.ts
+@@ -173,6 +173,18 @@ export const proxy: ProxyFetch = async (input, proxyInit) => {
+ 
+   const res = await (customFetch || fetch)(req)
+   const resHeaders = new Headers(res.headers)
++
++  // https://datatracker.ietf.org/doc/html/rfc9110#section-7.6.1
++  // Remove headers listed in the response's own Connection header (MUST per RFC 9110)
++  const connectionValue = resHeaders.get('connection')
++  if (connectionValue) {
++    connectionValue
++      .split(',')
++      .map((h) => h.trim())
++      .filter((h) => ALLOWED_TOKEN_PATTERN.test(h))
++      .forEach((h) => resHeaders.delete(h))
++  }
++
+   hopByHopHeaders.forEach((header) => {
+     resHeaders.delete(header)
+   })

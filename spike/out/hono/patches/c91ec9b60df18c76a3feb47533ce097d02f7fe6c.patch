@@ -1,0 +1,37 @@
+diff --git a/src/utils/ipaddr.test.ts b/src/utils/ipaddr.test.ts
+index fd3f56cf..5cefca1c 100644
+--- a/src/utils/ipaddr.test.ts
++++ b/src/utils/ipaddr.test.ts
+@@ -27,6 +27,9 @@ describe('expandIPv6', () => {
+     expect(expandIPv6('2001:2::')).toBe('2001:0002:0000:0000:0000:0000:0000:0000')
+     expect(expandIPv6('2001:0:0:db8::1')).toBe('2001:0000:0000:0db8:0000:0000:0000:0001')
+     expect(expandIPv6('::ffff:127.0.0.1')).toBe('0000:0000:0000:0000:0000:ffff:7f00:0001')
++    expect(expandIPv6('::ffff:0.0.0.1')).toBe('0000:0000:0000:0000:0000:ffff:0000:0001')
++    expect(expandIPv6('2001:db8:1:2:3:4:0.0.0.1')).toBe('2001:0db8:0001:0002:0003:0004:0000:0001')
++    expect(expandIPv6('::0.0.0.0')).toBe('0000:0000:0000:0000:0000:0000:0000:0000')
+   })
+ 
+   it('Should expand the unspecified address "::" to eight zero groups', () => {
+diff --git a/src/utils/ipaddr.ts b/src/utils/ipaddr.ts
+index 3617aa7d..9ffbd551 100644
+--- a/src/utils/ipaddr.ts
++++ b/src/utils/ipaddr.ts
+@@ -12,13 +12,14 @@ import type { AddressType } from '../helper/conninfo'
+  */
+ export const expandIPv6 = (ipV6: string): string => {
+   const sections = ipV6.split(':')
+-  if (IPV4_REGEX.test(sections.at(-1) as string)) {
++  const lastSection = sections.at(-1) as string
++  if (IPV4_REGEX.test(lastSection)) {
++    const octets = lastSection.split('.').map(Number)
+     sections.splice(
+       -1,
+       1,
+-      ...convertIPv6BinaryToString(convertIPv4ToBinary(sections.at(-1) as string)) // => ::7f00:0001
+-        .substring(2) // => 7f00:0001
+-        .split(':') // => ['7f00', '0001']
++      ((octets[0] << 8) | octets[1]).toString(16),
++      ((octets[2] << 8) | octets[3]).toString(16)
+     )
+   }
+   for (let i = 0; i < sections.length; i++) {

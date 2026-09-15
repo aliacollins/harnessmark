@@ -1,0 +1,121 @@
+diff --git a/src/middleware/etag/digest.ts b/src/middleware/etag/digest.ts
+index c6021fbc..32ceb212 100644
+--- a/src/middleware/etag/digest.ts
++++ b/src/middleware/etag/digest.ts
+@@ -13,6 +13,8 @@ const mergeBuffers = (
+   return merged
+ }
+ 
++const CHUNK_SIZE = 256 * 1024
++
+ export const generateDigest = async (
+   stream: ReadableStream<Uint8Array<ArrayBuffer>> | null,
+   generator: (body: Uint8Array<ArrayBuffer>) => ArrayBuffer | Promise<ArrayBuffer>
+@@ -22,6 +24,12 @@ export const generateDigest = async (
+   }
+ 
+   let result: ArrayBuffer | undefined = undefined
++  let chunk: Uint8Array<ArrayBuffer> | undefined
++  let chunkLength = 0
++
++  const digest = async (body: Uint8Array<ArrayBuffer>) => {
++    result = await generator(mergeBuffers(result, body))
++  }
+ 
+   const reader = stream.getReader()
+   for (;;) {
+@@ -30,7 +38,51 @@ export const generateDigest = async (
+       break
+     }
+ 
+-    result = await generator(mergeBuffers(result, value))
++    let offset = 0
++    while (offset < value.byteLength) {
++      const remaining = value.byteLength - offset
++
++      if (chunkLength === 0 && remaining >= CHUNK_SIZE) {
++        await digest(value.subarray(offset, offset + CHUNK_SIZE))
++        offset += CHUNK_SIZE
++        continue
++      }
++
++      const requiredLength = chunkLength + remaining
++      if (requiredLength < CHUNK_SIZE) {
++        if (!chunk) {
++          chunk = value.subarray(offset)
++        } else {
++          if (chunk.byteLength < requiredLength) {
++            const nextChunk = new Uint8Array<ArrayBuffer>(
++              new ArrayBuffer(Math.min(CHUNK_SIZE, Math.max(requiredLength, chunk.byteLength * 2)))
++            )
++            nextChunk.set(chunk.subarray(0, chunkLength))
++            chunk = nextChunk
++          }
++          chunk.set(value.subarray(offset), chunkLength)
++        }
++        chunkLength = requiredLength
++        break
++      }
++
++      const length = CHUNK_SIZE - chunkLength
++      if (chunk?.byteLength !== CHUNK_SIZE) {
++        const nextChunk = new Uint8Array<ArrayBuffer>(new ArrayBuffer(CHUNK_SIZE))
++        if (chunk) {
++          nextChunk.set(chunk.subarray(0, chunkLength))
++        }
++        chunk = nextChunk
++      }
++      chunk.set(value.subarray(offset, offset + length), chunkLength)
++      await digest(chunk)
++      chunkLength = 0
++      offset += length
++    }
++  }
++
++  if (chunk && chunkLength > 0) {
++    await digest(chunk.subarray(0, chunkLength))
+   }
+ 
+   if (!result) {
+diff --git a/src/middleware/etag/index.test.ts b/src/middleware/etag/index.test.ts
+index 63d05683..ab91fe67 100644
+--- a/src/middleware/etag/index.test.ts
++++ b/src/middleware/etag/index.test.ts
+@@ -130,6 +130,37 @@ describe('Etag Middleware', () => {
+     expect(res.headers.get('ETag')).not.toBe(hash)
+   })
+ 
++  it('Should return the same etag regardless of ReadableStream chunk boundaries', async () => {
++    const app = new Hono()
++    app.use('/etag/*', etag())
++    app.get('/etag/rs1', (c) => {
++      return c.body(
++        new ReadableStream({
++          start(controller) {
++            controller.enqueue(new Uint8Array(1_000_000))
++            controller.close()
++          },
++        })
++      )
++    })
++    app.get('/etag/rs2', (c) => {
++      return c.body(
++        new ReadableStream({
++          start(controller) {
++            controller.enqueue(new Uint8Array(1))
++            controller.enqueue(new Uint8Array(32_768))
++            controller.enqueue(new Uint8Array(967_231))
++            controller.close()
++          },
++        })
++      )
++    })
++
++    const res1 = await app.request('http://localhost/etag/rs1')
++    const res2 = await app.request('http://localhost/etag/rs2')
++    expect(res2.headers.get('ETag')).toBe(res1.headers.get('ETag'))
++  })
++
+   it('Should not return etag header when the stream is empty', async () => {
+     const app = new Hono()
+     app.use('/etag/*', etag())

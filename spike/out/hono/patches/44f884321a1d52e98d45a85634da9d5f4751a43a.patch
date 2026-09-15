@@ -1,0 +1,35 @@
+diff --git a/src/helper/streaming/sse.test.tsx b/src/helper/streaming/sse.test.tsx
+index 75b2bd43..f5052721 100644
+--- a/src/helper/streaming/sse.test.tsx
++++ b/src/helper/streaming/sse.test.tsx
+@@ -154,6 +154,17 @@ describe('SSE Streaming helper', () => {
+     expect(decodedValue).toContain('retry: 0\n\n')
+   })
+ 
++  it('Should emit an empty id to reset Last-Event-ID', async () => {
++    const res = streamSSE(c, async (stream) => {
++      await stream.writeSSE({
++        data: 'reset',
++        id: '',
++      })
++    })
++
++    expect(await res.text()).toBe('data: reset\nid: \n\n')
++  })
++
+   it('Check stream Response if error occurred', async () => {
+     const onError = vi.fn()
+     const res = streamSSE(
+diff --git a/src/helper/streaming/sse.ts b/src/helper/streaming/sse.ts
+index 2b161912..be658ec6 100644
+--- a/src/helper/streaming/sse.ts
++++ b/src/helper/streaming/sse.ts
+@@ -35,7 +35,7 @@ export class SSEStreamingApi extends StreamingApi {
+       [
+         message.event && `event: ${message.event}`,
+         dataLines,
+-        message.id && `id: ${message.id}`,
++        message.id !== undefined && `id: ${message.id}`,
+         message.retry !== undefined && `retry: ${message.retry}`,
+       ]
+         .filter(Boolean)

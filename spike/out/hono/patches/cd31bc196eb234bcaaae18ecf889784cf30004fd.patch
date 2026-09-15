@@ -1,0 +1,67 @@
+diff --git a/src/utils/stream.test.ts b/src/utils/stream.test.ts
+index f2b9b6d3..c9edaf70 100644
+--- a/src/utils/stream.test.ts
++++ b/src/utils/stream.test.ts
+@@ -57,6 +57,44 @@ describe('StreamingApi', () => {
+     expect((await reader.read()).value).toEqual(new TextEncoder().encode('bar'))
+   })
+ 
++  it('pipe() re-acquires writer lock when pipeTo() throws', async () => {
++    const { readable, writable } = new TransformStream()
++    const api = new StreamingApi(writable, readable)
++    const reader = api.responseReadable.getReader()
++
++    const erroringReadable = new ReadableStream({
++      start(controller) {
++        controller.error(new Error('upstream error'))
++      },
++    })
++
++    await expect(api.pipe(erroringReadable)).rejects.toThrow('upstream error')
++    api.write('after pipe')
++    expect((await reader.read()).value).toEqual(new TextEncoder().encode('after pipe'))
++  })
++
++  it('pipe() can be called again after a previous pipe() throws', async () => {
++    const { readable, writable } = new TransformStream()
++    const api = new StreamingApi(writable, readable)
++    const reader = api.responseReadable.getReader()
++
++    const erroringReadable = new ReadableStream({
++      start(controller) {
++        controller.error(new Error('upstream error'))
++      },
++    })
++    await expect(api.pipe(erroringReadable)).rejects.toThrow('upstream error')
++
++    const src = new ReadableStream({
++      start(controller) {
++        controller.enqueue(new TextEncoder().encode('second pipe'))
++        controller.close()
++      },
++    })
++    await api.pipe(src)
++    expect((await reader.read()).value).toEqual(new TextEncoder().encode('second pipe'))
++  })
++
+   it('close()', async () => {
+     const { readable, writable } = new TransformStream()
+     const api = new StreamingApi(writable, readable)
+diff --git a/src/utils/stream.ts b/src/utils/stream.ts
+index b4d0463c..62c5487d 100644
+--- a/src/utils/stream.ts
++++ b/src/utils/stream.ts
+@@ -77,8 +77,11 @@ export class StreamingApi {
+ 
+   async pipe(body: ReadableStream) {
+     this.writer.releaseLock()
+-    await body.pipeTo(this.writable, { preventClose: true })
+-    this.writer = this.writable.getWriter()
++    try {
++      await body.pipeTo(this.writable, { preventClose: true, preventAbort: true })
++    } finally {
++      this.writer = this.writable.getWriter()
++    }
+   }
+ 
+   onAbort(listener: () => void | Promise<void>) {

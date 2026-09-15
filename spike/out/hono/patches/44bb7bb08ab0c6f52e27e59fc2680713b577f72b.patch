@@ -1,0 +1,109 @@
+diff --git a/src/middleware/timing/index.test.ts b/src/middleware/timing/index.test.ts
+index 527e7340..8b71c428 100644
+--- a/src/middleware/timing/index.test.ts
++++ b/src/middleware/timing/index.test.ts
+@@ -1,5 +1,5 @@
+ import { Hono } from '../../hono'
+-import { endTime, setMetric, startTime, timing } from '.'
++import { endTime, setMetric, startTime, timing, wrapTime } from '.'
+ 
+ describe('Server-Timing API', () => {
+   const app = new Hono()
+@@ -23,6 +23,20 @@ describe('Server-Timing API', () => {
+ 
+     return c.text('api!')
+   })
++  app.get('/api-wrap', async (c) => {
++    await wrapTime(c, name, new Promise((r) => setTimeout(r, 30)))
++
++    return c.text('api!')
++  })
++  app.get('/api-wrap-throw', async (c) => {
++    try {
++      await wrapTime(c, name, new Promise((_, r) => setTimeout(r, 30)))
++    } catch (e) {
++      return c.text(`error :( ${e}`, 500)
++    }
++
++    return c.text('api!')
++  })
+   app.get('/cache', async (c) => {
+     setMetric(c, region, regionDesc)
+ 
+@@ -51,6 +65,23 @@ describe('Server-Timing API', () => {
+     expect(res.headers.get('server-timing')?.includes(name)).toBeTruthy()
+   })
+ 
++  it('Should contain value metrics, wrapped', async () => {
++    const res = await app.request('http://localhost/api-wrap')
++    expect(res).not.toBeNull()
++    expect(res.headers.has('server-timing')).toBeTruthy()
++    expect(res.headers.get('server-timing')?.includes(`${name};dur=`)).toBeTruthy()
++    expect(res.headers.get('server-timing')?.includes(name)).toBeTruthy()
++  })
++
++  it('Should contain value metrics, wrapped throw', async () => {
++    const res = await app.request('http://localhost/api-wrap-throw')
++    expect(res).not.toBeNull()
++    expect(res.headers.has('server-timing')).toBeTruthy()
++    expect(res.status).toBeGreaterThanOrEqual(500)
++    expect(res.headers.get('server-timing')?.includes(`${name};dur=`)).toBeTruthy()
++    expect(res.headers.get('server-timing')?.includes(name)).toBeTruthy()
++  })
++
+   it('Should contain value-less metrics', async () => {
+     const res = await app.request('http://localhost/cache')
+     expect(res).not.toBeNull()
+diff --git a/src/middleware/timing/index.ts b/src/middleware/timing/index.ts
+index cc77a5ba..2d3012cd 100644
+--- a/src/middleware/timing/index.ts
++++ b/src/middleware/timing/index.ts
+@@ -1,6 +1,7 @@
+ import type { TimingVariables } from './timing'
++
+ export { TimingVariables }
+-export { timing, setMetric, startTime, endTime } from './timing'
++export { timing, setMetric, startTime, endTime, wrapTime } from './timing'
+ 
+ declare module '../..' {
+   interface ContextVariableMap extends TimingVariables {}
+diff --git a/src/middleware/timing/timing.ts b/src/middleware/timing/timing.ts
+index 90d3ac1b..02fa87bb 100644
+--- a/src/middleware/timing/timing.ts
++++ b/src/middleware/timing/timing.ts
+@@ -221,3 +221,35 @@ export const endTime = (c: Context, name: string, precision?: number) => {
+   setMetric(c, name, duration, description, precision)
+   metrics.timers.delete(name)
+ }
++
++/**
++ * Wrap a Promise to capture its duration.
++ * @param {Context} c - The context of the request.
++ * @param {string} name - The name of the timer.
++ * @param {Promise<T>} callable - The Promise to time.
++ * @param {string} [description] - The description of the timer.
++ * @param {number} [precision] - The precision of the timer value.
++ *
++ * @example
++ * ```ts
++ *   // Instead of this:
++ *   const data = await db.findMany(...);
++ *
++ *   // do this:
++ *   const data = await wrapTime(c, 'query', db.findMany(...));
++ * ```
++ * */
++export async function wrapTime<T>(
++  c: Context,
++  name: string,
++  callable: Promise<T>,
++  description?: string,
++  precision?: number
++): Promise<T> {
++  startTime(c, name, description)
++  try {
++    return await callable
++  } finally {
++    endTime(c, name, precision)
++  }
++}

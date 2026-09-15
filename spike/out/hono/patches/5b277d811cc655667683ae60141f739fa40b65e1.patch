@@ -1,0 +1,54 @@
+diff --git a/src/client/fetch-result-please.ts b/src/client/fetch-result-please.ts
+index 8e56a85e..069ffe21 100644
+--- a/src/client/fetch-result-please.ts
++++ b/src/client/fetch-result-please.ts
+@@ -12,9 +12,18 @@ const nullBodyResponses = new Set([101, 204, 205, 304])
+  * Throwing a structured error if the response is not `ok`. ({@link DetailedError})
+  */
+ export async function fetchRP(fetchRes: Response | Promise<Response>): Promise<any> {
+-  const _fetchRes = (await fetchRes) as unknown as Response & { _data: any }
++  const _fetchRes = (await fetchRes) as unknown as Response & {
++    _data: any
++    /**
++     * @description BodyInit property from whatwg-fetch polyfill
++     *
++     * @link https://github.com/JakeChampion/fetch/blob/main/fetch.js#L238
++     */
++    _bodyInit?: any
++  }
+ 
+-  const hasBody = _fetchRes.body && !nullBodyResponses.has(_fetchRes.status)
++  const hasBody =
++    (_fetchRes.body || _fetchRes._bodyInit) && !nullBodyResponses.has(_fetchRes.status)
+ 
+   if (hasBody) {
+     const responseType = detectResponseType(_fetchRes)
+diff --git a/src/client/utils.test.ts b/src/client/utils.test.ts
+index bd4b787b..97f8d59f 100644
+--- a/src/client/utils.test.ts
++++ b/src/client/utils.test.ts
+@@ -335,4 +335,24 @@ describe('parseResponse', async () => {
+       type _verify = Expect<Equal<ResultType, { message: string }>>
+     }),
+   ])
++
++  it('should parse json response with _bodyInit when body is undefined', async () => {
++    const mockFetch = vi.fn().mockResolvedValue({
++      ok: true,
++      status: 200,
++      headers: new Headers({ 'content-type': 'application/json' }),
++      body: undefined,
++      _bodyInit: '{"message":"test"}',
++      json: async () => ({ message: 'test' }),
++    })
++
++    global.fetch = mockFetch
++
++    const mockClientResponse = {
++      $get: mockFetch,
++    }
++
++    const result = await parseResponse(mockClientResponse.$get())
++    expect(result).toEqual({ message: 'test' })
++  })
+ })

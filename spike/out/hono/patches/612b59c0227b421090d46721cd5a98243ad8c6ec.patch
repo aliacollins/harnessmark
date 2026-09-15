@@ -1,0 +1,56 @@
+diff --git a/src/request.test.ts b/src/request.test.ts
+index aad72f3a..09b94db4 100644
+--- a/src/request.test.ts
++++ b/src/request.test.ts
+@@ -593,6 +593,34 @@ describe('cloneRawRequest', () => {
+     expect(formData.get('file')).toBeInstanceOf(File)
+   })
+ 
++  test('drops stale content length when cloning consumed multipart request', async () => {
++    const boundary = 'boundary'
++    const body = [
++      `--${boundary}`,
++      'Content-Disposition: form-data; name="foo"',
++      '',
++      'bar',
++      `--${boundary}--`,
++      '',
++    ].join('\r\n')
++    const req = new HonoRequest(
++      new Request('http://localhost', {
++        method: 'POST',
++        headers: {
++          'Content-Type': `multipart/form-data; boundary=${boundary}`,
++          'Content-Length': new TextEncoder().encode(body).byteLength.toString(),
++        },
++        body,
++      })
++    )
++    await req.formData()
++
++    const clonedReq = await cloneRawRequest(req)
++
++    expect(clonedReq.headers.has('Content-Length')).toBe(false)
++    expect((await clonedReq.formData()).get('foo')).toBe('bar')
++  })
++
+   test('clones GET request without body', async () => {
+     const req = new HonoRequest(
+       new Request('http://localhost', {
+diff --git a/src/request.ts b/src/request.ts
+index 29f1ed97..5a225714 100644
+--- a/src/request.ts
++++ b/src/request.ts
+@@ -485,9 +485,10 @@ export const cloneRawRequest = async (req: HonoRequest): Promise<Request> => {
+   const body = await req[cacheKey]()
+   const headers = req.header()
+   if (body instanceof FormData) {
+-    // The FormData is re-serialized with a fresh multipart boundary, so the original
+-    // Content-Type header no longer matches. Let the Request constructor generate it.
++    // The FormData is re-serialized, so the original content headers no longer
++    // describe the body. Let the runtime generate them for the new representation.
+     delete headers['content-type']
++    delete headers['content-length']
+   }
+ 
+   const requestInit: RequiredRequestInit = {

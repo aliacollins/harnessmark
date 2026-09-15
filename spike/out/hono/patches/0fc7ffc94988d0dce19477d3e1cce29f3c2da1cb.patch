@@ -1,0 +1,105 @@
+diff --git a/src/router/common.case.test.ts b/src/router/common.case.test.ts
+index de3bc693..b829a4b6 100644
+--- a/src/router/common.case.test.ts
++++ b/src/router/common.case.test.ts
+@@ -550,6 +550,33 @@ export const runTest = ({
+       })
+     })
+ 
++    describe('Capture regex param with trailing wildcard on empty remainder', () => {
++      beforeEach(() => {
++        router.add('GET', '/:id{[0-9]+}/*', 'regexp')
++      })
++
++      it('GET /123', () => {
++        const res = match('GET', '/123')
++        expect(res.length).toBe(1)
++        expect(res[0].handler).toEqual('regexp')
++        expect(res[0].params['id']).toBe('123')
++      })
++    })
++
++    describe('Capture regex param with trailing wildcard and sibling route', () => {
++      beforeEach(() => {
++        router.add('GET', '/regex-abc/:id{[0-9]+}/*', 'middleware')
++        router.add('GET', '/regex-abc/:id{[0-9]+}/def', 'regexp')
++      })
++
++      it('GET /regex-abc/123/ghi', () => {
++        const res = match('GET', '/regex-abc/123/ghi')
++        expect(res.length).toBe(1)
++        expect(res[0].handler).toEqual('middleware')
++        expect(res[0].params['id']).toBe('123')
++      })
++    })
++
+     describe('Capture complex multiple directories', () => {
+       beforeEach(() => {
+         router.add('GET', '/:first{.+}/middle-a/:reference?', '1')
+diff --git a/src/router/linear-router/router.test.ts b/src/router/linear-router/router.test.ts
+index 396d3c56..d7625e2a 100644
+--- a/src/router/linear-router/router.test.ts
++++ b/src/router/linear-router/router.test.ts
+@@ -10,6 +10,8 @@ describe('LinearRouter', () => {
+         tests: [
+           'Multi match > `params` per a handler > GET /entry/123/show',
+           'Capture regex pattern has trailing wildcard > GET /foo/bar/file.html',
++          'Capture regex param with trailing wildcard on empty remainder > GET /123',
++          'Capture regex param with trailing wildcard and sibling route > GET /regex-abc/123/ghi',
+           'Complex > Parameter with {.*} regexp',
+         ],
+       },
+diff --git a/src/router/trie-router/node.test.ts b/src/router/trie-router/node.test.ts
+index fa22b01c..46f7c3d5 100644
+--- a/src/router/trie-router/node.test.ts
++++ b/src/router/trie-router/node.test.ts
+@@ -410,7 +410,7 @@ describe('Multi match', () => {
+     const node = new Node()
+     node.insert('get', '/regex-abc/:id{[0-9]+}/*', 'middleware a')
+     node.insert('get', '/regex-abc/:id{[0-9]+}/def', 'regexp')
+-    it('/regexp-abc/123/def', () => {
++    it('/regex-abc/123/def', () => {
+       const [res] = node.search('get', '/regex-abc/123/def')
+       expect(res.length).toBe(2)
+       expect(res[0][0]).toEqual('middleware a')
+@@ -418,10 +418,17 @@ describe('Multi match', () => {
+       expect(res[1][0]).toEqual('regexp')
+       expect(res[1][1]['id']).toBe('123')
+     })
+-    it('/regexp-abc/123', () => {
++    it('/regex-abc/123/ghi', () => {
+       const [res] = node.search('get', '/regex-abc/123/ghi')
+       expect(res.length).toBe(1)
+       expect(res[0][0]).toEqual('middleware a')
++      expect(res[0][1]['id']).toBe('123')
++    })
++    it('/regex-abc/123', () => {
++      const [res] = node.search('get', '/regex-abc/123')
++      expect(res.length).toBe(1)
++      expect(res[0][0]).toEqual('middleware a')
++      expect(res[0][1]['id']).toBe('123')
+     })
+   })
+   describe('Trailing slash', () => {
+diff --git a/src/router/trie-router/node.ts b/src/router/trie-router/node.ts
+index 42c03b48..16989960 100644
+--- a/src/router/trie-router/node.ts
++++ b/src/router/trie-router/node.ts
+@@ -187,6 +187,17 @@ export class Node<T> {
+               params[name] = m[0]
+               this.#pushHandlerSets(handlerSets, child, method, node.#params, params)
+ 
++              // '/:id{[0-9]+}/*' => match '/123'
++              if (m[0].length === restPathString.length && child.#children['*']) {
++                this.#pushHandlerSets(
++                  handlerSets,
++                  child.#children['*'],
++                  method,
++                  node.#params,
++                  params
++                )
++              }
++
+               if (hasChildren(child.#children)) {
+                 child.#params = params
+                 const componentCount = m[0].match(/\//)?.length ?? 0

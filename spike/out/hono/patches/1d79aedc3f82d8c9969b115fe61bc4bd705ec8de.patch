@@ -1,0 +1,38 @@
+diff --git a/src/utils/url.test.ts b/src/utils/url.test.ts
+index 3005dadd..a2996209 100644
+--- a/src/utils/url.test.ts
++++ b/src/utils/url.test.ts
+@@ -116,6 +116,15 @@ describe('url', () => {
+       const path = getPath(new Request('http+unix://%2Ftmp%2Fsocket%2Esock/hello/'))
+       expect(path).toBe('/hello/')
+     })
++
++    it.each([
++      'http:/example.com/hello', // invalid HTTP URL
++      'http:///hello', // invalid HTTP URL
++      'http://a/:/hello', // starts with `/:/`
++      'x://a/:/hello', // unknown schema
++    ])('getPath - %s', (url) => {
++      expect(getPath(new Request(url))).toBe(new URL(url).pathname)
++    })
+   })
+ 
+   describe('getQueryStrings', () => {
+diff --git a/src/utils/url.ts b/src/utils/url.ts
+index 816c7087..8e4dcb43 100644
+--- a/src/utils/url.ts
++++ b/src/utils/url.ts
+@@ -105,12 +105,7 @@ const tryDecodeURI = (str: string) => tryDecode(str, decodeURI)
+ 
+ export const getPath = (request: Request): string => {
+   const url = request.url
+-  const start = url.indexOf(
+-    '/',
+-    url.charCodeAt(9) === 58
+-      ? 13 // http+unix://
+-      : 8 // http:// or https://
+-  )
++  const start = url.indexOf('/', url.indexOf(':') + 4)
+   let i = start
+   for (; i < url.length; i++) {
+     const charCode = url.charCodeAt(i)

@@ -1,0 +1,53 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 03f6accf..598f68f5 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -55,4 +55,22 @@ describe('JSON pretty by Middleware', () => {
+     const nonPrettyText = await (await app.request('?pretty')).text()
+     expect(nonPrettyText).toBe('{"message":"Hono!"}')
+   })
++
++  it('Should force pretty JSON output when force option is true', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) => {
++      return c.json({ message: 'Hono!' })
++    })
++
++    const resWithoutQuery = await (await app.request('http://localhost/')).text()
++    expect(resWithoutQuery).toBe(`{
++  "message": "Hono!"
++}`)
++
++    const resWithQuery = await (await app.request('http://localhost/?pretty')).text()
++    expect(resWithQuery).toBe(`{
++  "message": "Hono!"
++}`)
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc198e58..785e4a9a 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -17,6 +17,12 @@ interface PrettyOptions {
+    * @default 'pretty'
+    */
+   query?: string
++
++  /**
++   * Force prettification of JSON responses regardless of query parameters.
++   * @default false
++   */
++  force?: boolean
+ }
+ 
+ /**
+@@ -40,7 +46,7 @@ interface PrettyOptions {
+ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+   const targetQuery = options?.query ?? 'pretty'
+   return async function prettyJSON(c, next) {
+-    const pretty = c.req.query(targetQuery) || c.req.query(targetQuery) === ''
++    const pretty = options?.force || c.req.query(targetQuery) || c.req.query(targetQuery) === ''
+     await next()
+     if (pretty && c.res.headers.get('Content-Type')?.startsWith('application/json')) {
+       const obj = await c.res.json()

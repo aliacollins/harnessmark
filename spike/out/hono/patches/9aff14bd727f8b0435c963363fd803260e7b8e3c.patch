@@ -1,0 +1,36 @@
+diff --git a/src/middleware/serve-static/index.test.ts b/src/middleware/serve-static/index.test.ts
+index 000a82f6..dd8a37fc 100644
+--- a/src/middleware/serve-static/index.test.ts
++++ b/src/middleware/serve-static/index.test.ts
+@@ -264,7 +264,7 @@ describe('Serve Static Middleware', () => {
+       })
+       app.get('*', serveStatic)
+ 
+-      const res = await app.request('///etc/passwd')
++      const res = await app.request('/etc/passwd')
+       expect(await res.text()).toBe('Hello in etc/passwd')
+     })
+ 
+@@ -289,6 +289,9 @@ describe('Serve Static Middleware', () => {
+       const res2 = await app.request('/admin%2Fsecret.txt')
+       expect(res2.headers.get('X-Authorized')).toBeNull()
+       expect(await res2.text()).toBe('Hello in admin%2Fsecret.txt')
++
++      const res3 = await app.request('//admin/secret.txt')
++      expect(res3.status).toBe(404)
+     })
+   })
+ })
+diff --git a/src/middleware/serve-static/index.ts b/src/middleware/serve-static/index.ts
+index f2c6cba0..389f830d 100644
+--- a/src/middleware/serve-static/index.ts
++++ b/src/middleware/serve-static/index.ts
+@@ -64,7 +64,7 @@ export const serveStatic = <E extends Env = Env>(
+     } else {
+       try {
+         filename = tryDecodeURI(c.req.path)
+-        if (/(?:^|[\/\\])\.\.(?:$|[\/\\])/.test(filename)) {
++        if (/(?:^|[\/\\])\.{1,2}(?:$|[\/\\])|[\/\\]{2,}/.test(filename)) {
+           throw new Error()
+         }
+       } catch {

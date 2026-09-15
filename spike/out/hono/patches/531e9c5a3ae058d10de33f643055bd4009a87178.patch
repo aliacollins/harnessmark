@@ -1,0 +1,135 @@
+diff --git a/src/utils/body.test.ts b/src/utils/body.test.ts
+index 2a8d4b1e..72194625 100644
+--- a/src/utils/body.test.ts
++++ b/src/utils/body.test.ts
+@@ -22,6 +22,11 @@ describe('Parse Body Util', () => {
+     })
+   }
+ 
++  const createNestedKey = (depth: number) =>
++    Array(depth + 1)
++      .fill('a')
++      .join('.')
++
+   it('should parse `multipart/form-data`', async () => {
+     const data = new FormData()
+     data.append('message', 'hello')
+@@ -179,6 +184,49 @@ describe('Parse Body Util', () => {
+     })
+   })
+ 
++  it('should allow 32 nesting levels by default', async () => {
++    const data = new FormData()
++    data.append(createNestedKey(32), 'value')
++
++    const req = createRequest(FORM_URL, 'POST', data)
++    let nested: unknown = await parseBody(req, { dot: true })
++
++    for (let i = 0; i <= 32; i++) {
++      nested = (nested as Record<string, unknown>).a
++    }
++    expect(nested).toBe('value')
++  })
++
++  it('should reject dot notation deeper than the default limit', async () => {
++    const data = new FormData()
++    data.append(createNestedKey(33), 'value')
++
++    const req = createRequest(FORM_URL, 'POST', data)
++
++    await expect(parseBody(req, { dot: true })).rejects.toThrow('Nesting limit exceeded')
++  })
++
++  it('should reject deeply nested keys without splitting every segment', async () => {
++    const req = createRequest(SEARCH_URL, 'POST', `${'.'.repeat(65_530)}=value`, {
++      'Content-Type': 'application/x-www-form-urlencoded',
++    })
++
++    await expect(parseBody(req, { dot: true })).rejects.toThrow('Nesting limit exceeded')
++  })
++
++  it('should reject too many nested objects across multiple fields', async () => {
++    const searchParams = new URLSearchParams()
++    for (let i = 0; i <= 10_000; i++) {
++      searchParams.append(`field${i}.value`, 'value')
++    }
++
++    const req = createRequest(SEARCH_URL, 'POST', searchParams, {
++      'Content-Type': 'application/x-www-form-urlencoded',
++    })
++
++    await expect(parseBody(req, { dot: true })).rejects.toThrow('Nesting limit exceeded')
++  })
++
+   it('should skip keys starting with __proto__. to prevent prototype pollution', async () => {
+     const data = new FormData()
+     data.append('__proto__.polluted', 'malicious')
+diff --git a/src/utils/body.ts b/src/utils/body.ts
+index 62e3c116..3fcf03cb 100644
+--- a/src/utils/body.ts
++++ b/src/utils/body.ts
+@@ -6,6 +6,9 @@
+ import type { HonoRequest } from '../request'
+ import { bufferToFormData } from './buffer'
+ 
++const MAX_NESTING_DEPTH = 32
++const MAX_NESTED_OBJECTS = 10_000
++
+ type BodyDataValueDot = { [x: string]: string | File | BodyDataValueDot }
+ type BodyDataValueDotAll = {
+   [x: string]: string | File | (string | File)[] | BodyDataValueDotAll
+@@ -159,6 +162,7 @@ function convertFormDataToBodyData<T extends BodyData = BodyData>(
+   options: ParseBodyOptions
+ ): T {
+   const form: BodyData = Object.create(null)
++  const nestingState = { count: 0 }
+ 
+   formData.forEach((value, key) => {
+     const shouldParseAllValues = options.all || key.endsWith('[]')
+@@ -175,7 +179,7 @@ function convertFormDataToBodyData<T extends BodyData = BodyData>(
+       const shouldParseDotValues = key.includes('.')
+ 
+       if (shouldParseDotValues) {
+-        handleParsingNestedValues(form, key, value)
++        handleParsingNestedValues(form, key, value, nestingState)
+         delete form[key]
+       }
+     })
+@@ -221,14 +225,18 @@ const handleParsingAllValues = (
+ const handleParsingNestedValues = (
+   form: BodyData,
+   key: string,
+-  value: BodyDataValue<Partial<ParseBodyOptions>>
++  value: BodyDataValue<Partial<ParseBodyOptions>>,
++  state: { count: number }
+ ): void => {
+   if (/(?:^|\.)__proto__\./.test(key)) {
+     return
+   }
+ 
+   let nestedForm = form
+-  const keys = key.split('.')
++  const keys = key.split('.', MAX_NESTING_DEPTH + 2)
++  if (keys.length > MAX_NESTING_DEPTH + 1) {
++    throwNestingLimitExceeded()
++  }
+ 
+   keys.forEach((key, index) => {
+     if (index === keys.length - 1) {
+@@ -240,9 +248,16 @@ const handleParsingNestedValues = (
+         Array.isArray(nestedForm[key]) ||
+         nestedForm[key] instanceof File
+       ) {
++        if (state.count++ >= MAX_NESTED_OBJECTS) {
++          throwNestingLimitExceeded()
++        }
+         nestedForm[key] = Object.create(null)
+       }
+       nestedForm = nestedForm[key] as unknown as BodyData
+     }
+   })
+ }
++
++const throwNestingLimitExceeded = (): never => {
++  throw new Error('Nesting limit exceeded')
++}

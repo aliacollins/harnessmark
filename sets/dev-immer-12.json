@@ -1,0 +1,97 @@
+{
+	"name": "dev-immer-12",
+	"version": 1,
+	"frozen_at": "2026-09-12T02:20:20.967Z",
+	"selection": {
+		"kind": "all-tasks",
+		"repo": "immer",
+		"within_bucket": "sha ascending",
+		"chains": "every immer chain, chain_id ascending"
+	},
+	"tasks": [
+		{
+			"repo": "immer",
+			"sha": "0c3efdd4eae2d44a9c436c554499c68c45b4eccc",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "immer",
+			"sha": "16e225b5a316d9ef6695e9aee45eab6e7bf4258a",
+			"size_bucket": "S",
+			"category": "bugfix"
+		},
+		{
+			"repo": "immer",
+			"sha": "48fc3788609ce46dd789c313768bae4f48b00ec5",
+			"size_bucket": "M",
+			"category": "security"
+		},
+		{
+			"repo": "immer",
+			"sha": "858d0365aa292a1f2028ccac3dfa8fccfbfa75c4",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "immer",
+			"sha": "90a77655af5a9dd3fbf7688f95952d32511b430c",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "immer",
+			"sha": "9491138b112c01ef0042d374e1553135e3819057",
+			"size_bucket": "S",
+			"category": "unknown"
+		},
+		{
+			"repo": "immer",
+			"sha": "a73672ab76b5d9fd94f278a23c6c1931a03147e5",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "immer",
+			"sha": "ad510d4bfaa192d6217dec15003d4f2821dad9f9",
+			"size_bucket": "S",
+			"category": "unknown"
+		},
+		{
+			"repo": "immer",
+			"sha": "d3bc436d0f39dd9c273f1fad3061c17f73ffd82a",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "immer",
+			"sha": "d6c12028c05c1f7bbbdba0e3978b7c06988aa7f2",
+			"size_bucket": "XL",
+			"category": "perf"
+		},
+		{
+			"repo": "immer",
+			"sha": "e38ad71f256844bf2dc28c1120c33c930c881bb6",
+			"size_bucket": "S",
+			"category": "bugfix"
+		},
+		{
+			"repo": "immer",
+			"sha": "e3df956dca6f62c9053ab750b2c8b8a518f3e001",
+			"size_bucket": "S",
+			"category": "bugfix"
+		}
+	],
+	"chains": [
+		{
+			"repo": "immer",
+			"chain_id": "immer:48fc378860",
+			"length": 2
+		},
+		{
+			"repo": "immer",
+			"chain_id": "immer:d6c12028c0",
+			"length": 2
+		}
+	]
+}

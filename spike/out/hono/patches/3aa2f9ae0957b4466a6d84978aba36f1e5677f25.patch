@@ -1,0 +1,52 @@
+diff --git a/src/middleware/bearer-auth/index.test.ts b/src/middleware/bearer-auth/index.test.ts
+index c9f579c9..2dfa97e9 100644
+--- a/src/middleware/bearer-auth/index.test.ts
++++ b/src/middleware/bearer-auth/index.test.ts
+@@ -450,6 +450,18 @@ describe('Bearer Auth by Middleware', () => {
+     expect(res.headers.get('x-custom')).toBe('foo')
+   })
+ 
++  it.each([['bearer'], ['BEARER'], ['BeArEr']])(
++    'Should authorize - prefix is case-insensitive: %s',
++    async (prefix) => {
++      const req = new Request('http://localhost/auth/a')
++      req.headers.set('Authorization', `${prefix} ${token}`)
++      const res = await app.request(req)
++      expect(res).not.toBeNull()
++      expect(res.status).toBe(200)
++      expect(handlerExecuted).toBeTruthy()
++    }
++  )
++
+   it('Should not authorize - no authorization header', async () => {
+     const req = new Request('http://localhost/auth/a')
+     const res = await app.request(req)
+@@ -481,6 +493,15 @@ describe('Bearer Auth by Middleware', () => {
+     expect(res.headers.get('x-custom')).toBeNull()
+   })
+ 
++  it('Should not authorize - token is case-sensitive', async () => {
++    const req = new Request('http://localhost/auth/a')
++    req.headers.set('Authorization', `Bearer ${token.toUpperCase()}`)
++    const res = await app.request(req)
++    expect(res).not.toBeNull()
++    expect(res.status).toBe(401)
++    expect(await res.text()).toBe('Unauthorized')
++  })
++
+   it('Should authorize', async () => {
+     const req = new Request('http://localhost/authBot/a')
+     req.headers.set('Authorization', 'Bot abcdefg12345-._~+/=')
+diff --git a/src/middleware/bearer-auth/index.ts b/src/middleware/bearer-auth/index.ts
+index 3ecd2e3b..122ccc55 100644
+--- a/src/middleware/bearer-auth/index.ts
++++ b/src/middleware/bearer-auth/index.ts
+@@ -113,7 +113,7 @@ export const bearerAuth = (options: BearerAuthOptions): MiddlewareHandler => {
+ 
+   const realm = options.realm?.replace(/"/g, '\\"')
+   const prefixRegexStr = options.prefix === '' ? '' : `${options.prefix} +`
+-  const regexp = new RegExp(`^${prefixRegexStr}(${TOKEN_STRINGS}) *$`)
++  const regexp = new RegExp(`^${prefixRegexStr}(${TOKEN_STRINGS}) *$`, 'i')
+   const wwwAuthenticatePrefix = options.prefix === '' ? '' : `${options.prefix} `
+ 
+   const throwHTTPException = async (

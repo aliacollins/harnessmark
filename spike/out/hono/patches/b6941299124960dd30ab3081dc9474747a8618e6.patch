@@ -1,0 +1,195 @@
+diff --git a/src/client/client.test.ts b/src/client/client.test.ts
+index 8e5bd519..84a4de8c 100644
+--- a/src/client/client.test.ts
++++ b/src/client/client.test.ts
+@@ -1523,3 +1523,81 @@ describe('WebSocket Provider Integration', () => {
+     expect(webSocketMock).toHaveBeenCalledWith(expectedUrl, undefined)
+   })
+ })
++
++describe('Custom buildSearchParams', () => {
++  const app = new Hono()
++  const route = app.get(
++    '/search',
++    validator('query', () => {
++      return {} as { q: string; tags: string[] }
++    }),
++    (c) => {
++      return c.json({
++        message: 'success',
++        queryString: '',
++      })
++    }
++  )
++
++  type AppType = typeof route
++
++  const server = setupServer(
++    http.get('http://localhost/search', ({ request }) => {
++      const url = new URL(request.url)
++      return HttpResponse.json({
++        message: 'success',
++        queryString: url.search,
++      })
++    })
++  )
++
++  beforeAll(() => server.listen())
++  afterEach(() => server.resetHandlers())
++  afterAll(() => server.close())
++
++  // Custom buildSearchParams that uses bracket notation for arrays (key[]=value)
++  const customBuildSearchParams = (query: Record<string, string | string[]>) => {
++    const searchParams = new URLSearchParams()
++    for (const [k, v] of Object.entries(query)) {
++      if (v === undefined) continue
++      if (Array.isArray(v)) {
++        v.forEach((item) => searchParams.append(`${k}[]`, item))
++      } else {
++        searchParams.set(k, v)
++      }
++    }
++    return searchParams
++  }
++
++  it('Should use custom buildSearchParams for query serialization', async () => {
++    const client = hc<AppType>('http://localhost', { buildSearchParams: customBuildSearchParams })
++    const res = await client.search.$get({ query: { q: 'test', tags: ['tag1', 'tag2', 'tag3'] } })
++    const data = await res.json()
++
++    expect(res.status).toBe(200)
++    expect(data.queryString).toBe('?q=test&tags%5B%5D=tag1&tags%5B%5D=tag2&tags%5B%5D=tag3')
++  })
++
++  it('Should use default buildSearchParams when custom one is not provided', async () => {
++    const client = hc<AppType>('http://localhost')
++    const res = await client.search.$get({ query: { q: 'test', tags: ['tag1', 'tag2'] } })
++    const data = await res.json()
++
++    expect(res.status).toBe(200)
++    expect(data.queryString).toBe('?q=test&tags=tag1&tags=tag2')
++  })
++
++  it('Should use custom buildSearchParams in $url() method', () => {
++    const client = hc<AppType>('http://localhost', { buildSearchParams: customBuildSearchParams })
++    const url = client.search.$url({ query: { q: 'test', tags: ['tag1', 'tag2'] } })
++
++    expect(url.href).toBe('http://localhost/search?q=test&tags%5B%5D=tag1&tags%5B%5D=tag2')
++  })
++
++  it('Should use default buildSearchParams in $url() when custom one is not provided', () => {
++    const client = hc<AppType>('http://localhost')
++    const url = client.search.$url({ query: { q: 'test', tags: ['tag1', 'tag2'] } })
++
++    expect(url.href).toBe('http://localhost/search?q=test&tags=tag1&tags=tag2')
++  })
++})
+diff --git a/src/client/client.ts b/src/client/client.ts
+index 7c56f721..73e0c2ba 100644
+--- a/src/client/client.ts
++++ b/src/client/client.ts
+@@ -2,7 +2,7 @@ import type { Hono } from '../hono'
+ import type { FormValue, ValidationTargets } from '../types'
+ import { serialize } from '../utils/cookie'
+ import type { UnionToIntersection } from '../utils/types'
+-import type { Callback, Client, ClientRequestOptions } from './types'
++import type { BuildSearchParamsFn, Callback, Client, ClientRequestOptions } from './types'
+ import {
+   buildSearchParams,
+   deepMerge,
+@@ -33,14 +33,22 @@ const createProxy = (callback: Callback, path: string[]) => {
+ class ClientRequestImpl {
+   private url: string
+   private method: string
++  private buildSearchParams: BuildSearchParamsFn
+   private queryParams: URLSearchParams | undefined = undefined
+   private pathParams: Record<string, string> = {}
+   private rBody: BodyInit | undefined
+   private cType: string | undefined = undefined
+ 
+-  constructor(url: string, method: string) {
++  constructor(
++    url: string,
++    method: string,
++    options: {
++      buildSearchParams: BuildSearchParamsFn
++    }
++  ) {
+     this.url = url
+     this.method = method
++    this.buildSearchParams = options.buildSearchParams
+   }
+   fetch = async (
+     args?: ValidationTargets<FormValue> & {
+@@ -50,7 +58,7 @@ class ClientRequestImpl {
+   ) => {
+     if (args) {
+       if (args.query) {
+-        this.queryParams = buildSearchParams(args.query)
++        this.queryParams = this.buildSearchParams(args.query)
+       }
+ 
+       if (args.form) {
+@@ -124,6 +132,7 @@ export const hc = <T extends Hono<any, any, any>, Prefix extends string = string
+   options?: ClientRequestOptions
+ ) =>
+   createProxy(function proxyCallback(opts) {
++    const buildSearchParamsOption = options?.buildSearchParams ?? buildSearchParams
+     const parts = [...opts.path]
+     const lastParts = parts.slice(-3).reverse()
+ 
+@@ -163,7 +172,7 @@ export const hc = <T extends Hono<any, any, any>, Prefix extends string = string
+           result = replaceUrlParam(url, opts.args[0].param)
+         }
+         if (opts.args[0].query) {
+-          result = result + '?' + buildSearchParams(opts.args[0].query).toString()
++          result = result + '?' + buildSearchParamsOption(opts.args[0].query).toString()
+         }
+       }
+       result = removeIndexString(result)
+@@ -196,7 +205,9 @@ export const hc = <T extends Hono<any, any, any>, Prefix extends string = string
+       return establishWebSocket(targetUrl.toString())
+     }
+ 
+-    const req = new ClientRequestImpl(url, method)
++    const req = new ClientRequestImpl(url, method, {
++      buildSearchParams: buildSearchParamsOption,
++    })
+     if (method) {
+       options ??= {}
+       const args = deepMerge<ClientRequestOptions>(options, { ...opts.args[1] })
+diff --git a/src/client/types.ts b/src/client/types.ts
+index 970a1b2d..a65089e3 100644
+--- a/src/client/types.ts
++++ b/src/client/types.ts
+@@ -6,6 +6,8 @@ import type { HasRequiredKeys } from '../utils/types'
+ 
+ type HonoRequest = (typeof Hono.prototype)['request']
+ 
++export type BuildSearchParamsFn = (query: Record<string, string | string[]>) => URLSearchParams
++
+ export type ClientRequestOptions<T = unknown> = {
+   fetch?: typeof fetch | HonoRequest
+   webSocket?: (...args: ConstructorParameters<typeof WebSocket>) => WebSocket
+@@ -16,6 +18,21 @@ export type ClientRequestOptions<T = unknown> = {
+    * If you want to add some headers, use in `headers` instead of `init`
+    */
+   init?: RequestInit
++  /**
++   * Custom function to serialize query parameters into URLSearchParams.
++   * By default, arrays are serialized as multiple parameters with the same key (e.g., `key=a&key=b`).
++   * You can provide a custom function to change this behavior, for example to use bracket notation (e.g., `key[]=a&key[]=b`).
++   *
++   * @example
++   * ```ts
++   * const client = hc('http://localhost', {
++   *   buildSearchParams: (query) => {
++   *     return new URLSearchParams(qs.stringify(query))
++   *   }
++   * })
++   * ```
++   */
++  buildSearchParams?: BuildSearchParamsFn
+ } & (keyof T extends never
+   ? {
+       headers?:

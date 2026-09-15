@@ -1,0 +1,58 @@
+diff --git a/src/helper/streaming/sse.test.tsx b/src/helper/streaming/sse.test.tsx
+index 8da7e81f..75b2bd43 100644
+--- a/src/helper/streaming/sse.test.tsx
++++ b/src/helper/streaming/sse.test.tsx
+@@ -132,6 +132,28 @@ describe('SSE Streaming helper', () => {
+     expect(decodedValue).toContain(expectedRetryValue)
+   })
+ 
++  it('Should accept retry: 0 and not skip it', async () => {
++    const res = streamSSE(c, async (stream) => {
++      await stream.writeSSE({
++        data: 'This is a test message',
++        retry: 0,
++      })
++    })
++
++    expect(res).not.toBeNull()
++    expect(res.status).toBe(200)
++
++    if (!res.body) {
++      throw new Error('Body is null')
++    }
++    const reader = res.body.getReader()
++    const decoder = new TextDecoder()
++    const { value } = await reader.read()
++    const decodedValue = decoder.decode(value)
++
++    expect(decodedValue).toContain('retry: 0\n\n')
++  })
++
+   it('Check stream Response if error occurred', async () => {
+     const onError = vi.fn()
+     const res = streamSSE(
+diff --git a/src/helper/streaming/sse.ts b/src/helper/streaming/sse.ts
+index 6edd93d5..2b161912 100644
+--- a/src/helper/streaming/sse.ts
++++ b/src/helper/streaming/sse.ts
+@@ -24,8 +24,9 @@ export class SSEStreamingApi extends StreamingApi {
+       })
+       .join('\n')
+ 
+-    for (const key of ['event', 'id', 'retry'] as (keyof SSEMessage)[]) {
+-      if (message[key] && /[\r\n]/.test(message[key] as string)) {
++    for (const key of ['event', 'id'] as const) {
++      const value = message[key]
++      if (value && /[\r\n]/.test(value)) {
+         throw new Error(`${key} must not contain "\\r" or "\\n"`)
+       }
+     }
+@@ -35,7 +36,7 @@ export class SSEStreamingApi extends StreamingApi {
+         message.event && `event: ${message.event}`,
+         dataLines,
+         message.id && `id: ${message.id}`,
+-        message.retry && `retry: ${message.retry}`,
++        message.retry !== undefined && `retry: ${message.retry}`,
+       ]
+         .filter(Boolean)
+         .join('\n') + '\n\n'

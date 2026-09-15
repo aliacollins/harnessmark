@@ -1,0 +1,417 @@
+{
+	"name": "dev-hono-50",
+	"version": 1,
+	"frozen_at": "2026-09-12T02:20:20.937Z",
+	"selection": {
+		"kind": "headroom-biased",
+		"repo": "hono",
+		"count": 50,
+		"bucket_order": [
+			"XL",
+			"L",
+			"M",
+			"S",
+			"XS"
+		],
+		"within_bucket": "sha ascending",
+		"exclude_categories": [
+			"unknown"
+		],
+		"chains": "every hono chain with >= 3 steps, chain_id ascending",
+		"min_chain_steps": 3
+	},
+	"tasks": [
+		{
+			"repo": "hono",
+			"sha": "3bc96ba915bf8d5b25430c955aec8f7df500ff21",
+			"size_bucket": "XL",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "7792f5dc14acaa92056c1bf402241567ff9c7396",
+			"size_bucket": "XL",
+			"category": "perf"
+		},
+		{
+			"repo": "hono",
+			"sha": "8a0b18fd9b4d64dd2eb1d7f18e3536fc06cb54b2",
+			"size_bucket": "XL",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "96d2a89c57a20b4c3ef5acbe16c880c71c0df60a",
+			"size_bucket": "XL",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "f82aba8e8ea45d56199e751cee6ea7c067bcd176",
+			"size_bucket": "XL",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "034223f1bf8db3c98e4bf2d11d597c94362729d7",
+			"size_bucket": "L",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "12806614b92ef39e830b3f33456a02de0016701c",
+			"size_bucket": "L",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "224d2f5cbf2b4bc2ebb7482d0592149a8d9f0574",
+			"size_bucket": "L",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "3feb3551d46de1f633e82253f12cf1117316be93",
+			"size_bucket": "L",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "50869562980628b2984f73e064bb80691e5286bc",
+			"size_bucket": "L",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "63bbcf508c74d9fe7a3e20f4dfe7ffacc566dcce",
+			"size_bucket": "L",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "cea3fb09a1d6a6659142555b123cdf80c340f39d",
+			"size_bucket": "L",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "e59db594fbd22dd29e398846f9fb1e0447efefda",
+			"size_bucket": "L",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "02346c6d945a10c98f54ae51622e8c7afbe3bad4",
+			"size_bucket": "M",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "0bce36bf368ca4c1749285aeed537cba36b551bf",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "0c0bf8d789949d69d4e5bea244c468d2c7d9986b",
+			"size_bucket": "M",
+			"category": "security"
+		},
+		{
+			"repo": "hono",
+			"sha": "0c1d4c76cf6b2aace8bbef745d375c2cc176d99f",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "0fc7ffc94988d0dce19477d3e1cce29f3c2da1cb",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "24547a6ed5e175f9326063efb657540162287973",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "26de73133b8552f56ba72e025ecd82b08900d796",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "28a9c128912de19f3fb28b00ae289c9b93f6f392",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "30277aee0ddd96b643a4958d6102abe6e54d9a29",
+			"size_bucket": "M",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "3fe60f180ae63c607e3783cb720913cc8dd297b1",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "402eb3abe561914f41ee0f8e37f1d7f211f1ee51",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "44bb7bb08ab0c6f52e27e59fc2680713b577f72b",
+			"size_bucket": "M",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "489afe6b792e4ab052b503aaa1faae46e2c53112",
+			"size_bucket": "M",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "48e360fcaa107c7706fcf8adccb93505876791dc",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "50b8788cf54cb60112b7cd93642bc5094901475c",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "58825a72f7cc0a36d08535fc11dc90934ba77aeb",
+			"size_bucket": "M",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "5ad469a888f3944ae3e5d993621612d799f1e96c",
+			"size_bucket": "M",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "5e5b83d6ed963a2bc7d8384002e1c953648253b1",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "6217f4b74c02789015b4e14fd1c1d8dab58dd22e",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "66fe9feec2bf0dc7bb2b8bcdcb5a380d527e8ae2",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "7195c2486037a2caa51355a33f2ff31f6d1279c9",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "73794bdabeadca93676cdbd54aa82d018feb69b8",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "75b4308496d64aed39e96fc105db233bde3d29b3",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "7e0555d14c72d4204347ac9afaae32ba5c013ab9",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "8a5852d4c1d0c9bc46460d679e6f54a6d88575a1",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "8c4d7f3d2feea19c726bcaf3b7d01b62215eae8b",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "8f0702827002f0ada02434d908853458c17f862d",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "90e1b948467961718afd3ae34af9dee582b42248",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "9524923b485145148d6395b7531f3f504dc85933",
+			"size_bucket": "M",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "9ae98c9416dabf6ee3ca0f9d279df0310ce9fcb4",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "a192df0844724aeaf5cbc6f1ea2f8425d3f8a86a",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "b20d4225c9aa9e615717ca74e437852cc9fd5b94",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "b6941299124960dd30ab3081dc9474747a8618e6",
+			"size_bucket": "M",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "bda46ac1147eb16d3c4c6f7e9f89b9b22a953298",
+			"size_bucket": "M",
+			"category": "bugfix"
+		},
+		{
+			"repo": "hono",
+			"sha": "bf37828d6df56618bb90649c65c1c4deb2f9bcd6",
+			"size_bucket": "M",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "c968177d9c11ddc7c7cca57c384497f11a6d60ae",
+			"size_bucket": "M",
+			"category": "feature"
+		},
+		{
+			"repo": "hono",
+			"sha": "d2e7440d85dec3385c32e10402e9d73b6a0bbc7e",
+			"size_bucket": "M",
+			"category": "feature"
+		}
+	],
+	"chains": [
+		{
+			"repo": "hono",
+			"chain_id": "hono:027e3dfca9",
+			"length": 3
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:13a9481ee1",
+			"length": 4
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:253ec2857a",
+			"length": 3
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:3892a6c2b5",
+			"length": 4
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:3feb3551d4",
+			"length": 3
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:44bb7bb08a",
+			"length": 4
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:4eb022de68",
+			"length": 4
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:5463db2735",
+			"length": 4
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:568c2ecc1d",
+			"length": 3
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:569b4191a2",
+			"length": 3
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:6f101a7779",
+			"length": 4
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:80959d47d5",
+			"length": 3
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:9aff14bd72",
+			"length": 5
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:9c28d724c5",
+			"length": 3
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:a192df0844",
+			"length": 3
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:a48c8bf248",
+			"length": 4
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:eea9735fe3",
+			"length": 3
+		},
+		{
+			"repo": "hono",
+			"chain_id": "hono:f8b7847d75",
+			"length": 11
+		}
+	]
+}

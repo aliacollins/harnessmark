@@ -1,0 +1,33 @@
+diff --git a/src/utils/ipaddr.test.ts b/src/utils/ipaddr.test.ts
+index c6372d69..fd3f56cf 100644
+--- a/src/utils/ipaddr.test.ts
++++ b/src/utils/ipaddr.test.ts
+@@ -136,4 +136,11 @@ describe('convertIPv6ToString', () => {
+   `('convertIPv6ToString($input) === $expected', ({ input, expected }) => {
+     expect(convertIPv6BinaryToString(convertIPv6ToBinary(input))).toBe(expected)
+   })
++
++  it('Should compress the unspecified address (all zero groups) to "::"', () => {
++    expect(convertIPv6BinaryToString(0n)).toBe('::')
++    expect(convertIPv6BinaryToString(convertIPv6ToBinary('::'))).toBe('::')
++    // The output must round-trip back to the same binary value.
++    expect(convertIPv6ToBinary(convertIPv6BinaryToString(0n))).toBe(0n)
++  })
+ })
+diff --git a/src/utils/ipaddr.ts b/src/utils/ipaddr.ts
+index aea95dcd..3617aa7d 100644
+--- a/src/utils/ipaddr.ts
++++ b/src/utils/ipaddr.ts
+@@ -325,6 +325,12 @@ export const convertIPv4MappedIPv6ToIPv4 = (ipv6binary: bigint): bigint => ipv6b
+  * @return normalized IPv6 Address in string
+  */
+ export const convertIPv6BinaryToString = (ipV6: bigint): string => {
++  if (ipV6 === 0n) {
++    // The unspecified address compresses every group, which the generic
++    // logic below would render as a single ":". Handle it explicitly.
++    return '::'
++  }
++
+   if (isIPv4MappedIPv6(ipV6)) {
+     return `::ffff:${convertIPv4BinaryToString(convertIPv4MappedIPv6ToIPv4(ipV6))}`
+   }

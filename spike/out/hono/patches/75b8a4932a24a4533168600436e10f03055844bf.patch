@@ -1,0 +1,56 @@
+diff --git a/src/middleware/cors/index.test.ts b/src/middleware/cors/index.test.ts
+index de81bd41..9ea184c7 100644
+--- a/src/middleware/cors/index.test.ts
++++ b/src/middleware/cors/index.test.ts
+@@ -145,13 +145,26 @@ describe('CORS by Middleware', () => {
+   })
+ 
+   it('Preflight default', async () => {
+-    const req = new Request('https://localhost/api/abc', { method: 'OPTIONS' })
+-    req.headers.append('Access-Control-Request-Headers', 'X-PINGOTHER, Content-Type')
++    const req = new Request('https://localhost/api/abc', {
++      method: 'OPTIONS',
++      headers: {
++        'Access-Control-Request-Method': 'QUERY',
++        'Access-Control-Request-Headers': 'X-PINGOTHER, Content-Type',
++      },
++    })
+     const res = await app.request(req)
+ 
+     expect(res.status).toBe(204)
+     expect(res.statusText).toBe('No Content')
+-    expect(res.headers.get('Access-Control-Allow-Methods')?.split(',')[0]).toBe('GET')
++    expect(res.headers.get('Access-Control-Allow-Methods')?.split(',')).toEqual([
++      'GET',
++      'HEAD',
++      'PUT',
++      'POST',
++      'DELETE',
++      'PATCH',
++      'QUERY',
++    ])
+     expect(res.headers.get('Access-Control-Allow-Headers')?.split(',')).toEqual([
+       'X-PINGOTHER',
+       'Content-Type',
+diff --git a/src/middleware/cors/index.ts b/src/middleware/cors/index.ts
+index 48ea57fa..e4a45400 100644
+--- a/src/middleware/cors/index.ts
++++ b/src/middleware/cors/index.ts
+@@ -28,7 +28,7 @@ type CORSOptions = {
+  *
+  * @param {CORSOptions} [options] - The options for the CORS middleware.
+  * @param {string | string[] | ((origin: string, c: Context) => Promise<string | undefined | null> | string | undefined | null)} [options.origin='*'] - The value of "Access-Control-Allow-Origin" CORS header.
+- * @param {string[] | ((origin: string, c: Context) => Promise<string[]> | string[])} [options.allowMethods=['GET', 'HEAD', 'PUT', 'POST', 'DELETE', 'PATCH']] - The value of "Access-Control-Allow-Methods" CORS header.
++ * @param {string[] | ((origin: string, c: Context) => Promise<string[]> | string[])} [options.allowMethods=['GET', 'HEAD', 'PUT', 'POST', 'DELETE', 'PATCH', 'QUERY']] - The value of "Access-Control-Allow-Methods" CORS header.
+  * @param {string[]} [options.allowHeaders=[]] - The value of "Access-Control-Allow-Headers" CORS header.
+  * @param {number} [options.maxAge] - The value of "Access-Control-Max-Age" CORS header.
+  * @param {boolean} [options.credentials] - The value of "Access-Control-Allow-Credentials" CORS header.
+@@ -63,7 +63,7 @@ type CORSOptions = {
+ export const cors = (options?: CORSOptions): MiddlewareHandler => {
+   const opts = {
+     origin: '*',
+-    allowMethods: ['GET', 'HEAD', 'PUT', 'POST', 'DELETE', 'PATCH'],
++    allowMethods: ['GET', 'HEAD', 'PUT', 'POST', 'DELETE', 'PATCH', 'QUERY'],
+     allowHeaders: [],
+     exposeHeaders: [],
+     ...options,

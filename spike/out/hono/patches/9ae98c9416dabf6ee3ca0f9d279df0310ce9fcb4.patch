@@ -1,0 +1,202 @@
+diff --git a/src/helper/proxy/index.test.ts b/src/helper/proxy/index.test.ts
+index 2e599190..4d295120 100644
+--- a/src/helper/proxy/index.test.ts
++++ b/src/helper/proxy/index.test.ts
+@@ -140,24 +140,81 @@ describe('Proxy Middleware', () => {
+ 
+     it('remove hop-by-hop headers', async () => {
+       const app = new Hono()
+-      app.get('/proxy/:path', (c) => proxy(`https://example.com/${c.req.param('path')}`))
++      app.get('/proxy/:path', (c) => proxy(`https://example.com/${c.req.param('path')}`, c.req))
++
++      const res = await app.request('/proxy/hop-by-hop', {
++        headers: {
++          Host: 'example.com',
++          Connection: 'keep-alive, custom-header',
++          'Keep-Alive': 'timeout=5, max=1000',
++          'Proxy-Authorization': 'Basic 123456',
++          'Custom-Header': 'test',
++          'Allowed-Custom-Header': 'test',
++        },
++      })
++      const req = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]
++
++      expect(req.headers.get('Host')).toBe('example.com')
++      expect(req.headers.get('Connection')).toBeNull()
++      expect(req.headers.get('Keep-Alive')).toBeNull()
++      expect(req.headers.get('Proxy-Authorization')).toBeNull()
++      expect(req.headers.get('Custom-Header')).toBe('test')
++      expect(req.headers.get('Allowed-Custom-Header')).toBe('test')
++
++      expect(res.headers.get('Transfer-Encoding')).toBeNull()
++    })
++
++    it('remove hop-by-hop headers with strictConnectionProcessing', async () => {
++      const app = new Hono()
++      app.get('/proxy/:path', (c) =>
++        proxy(`https://example.com/${c.req.param('path')}`, {
++          ...c.req,
++          strictConnectionProcessing: true,
++        })
++      )
+ 
+       const res = await app.request('/proxy/hop-by-hop', {
+         headers: {
+-          Connection: 'keep-alive',
++          Host: 'example.com',
++          Connection: 'keep-alive, custom-header',
+           'Keep-Alive': 'timeout=5, max=1000',
+           'Proxy-Authorization': 'Basic 123456',
++          'Custom-Header': 'test',
++          'Allowed-Custom-Header': 'test',
+         },
+       })
+       const req = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]
+ 
++      expect(req.headers.get('Host')).toBe('example.com')
+       expect(req.headers.get('Connection')).toBeNull()
+       expect(req.headers.get('Keep-Alive')).toBeNull()
+       expect(req.headers.get('Proxy-Authorization')).toBeNull()
++      expect(req.headers.get('Custom-Header')).toBeNull()
++      expect(req.headers.get('Allowed-Custom-Header')).toBe('test')
+ 
+       expect(res.headers.get('Transfer-Encoding')).toBeNull()
+     })
+ 
++    it('invalid hop-by-hop headers with strictConnectionProcessing', async () => {
++      const app = new Hono()
++      app.get('/proxy/:path', (c) =>
++        proxy(`https://example.com/${c.req.param('path')}`, {
++          ...c.req,
++          strictConnectionProcessing: true,
++        })
++      )
++
++      const res = await app.request('/proxy/hop-by-hop', {
++        headers: {
++          Host: 'example.com',
++          Connection: 'keep-alive, invalid-header invalid-header',
++          'Keep-Alive': 'timeout=5, max=1000',
++        },
++      })
++
++      expect(res.status).toBe(400)
++    })
++
+     it('specify hop-by-hop header by options', async () => {
+       const app = new Hono()
+       app.get('/proxy/:path', (c) =>
+diff --git a/src/helper/proxy/index.ts b/src/helper/proxy/index.ts
+index efbdd706..0b707757 100644
+--- a/src/helper/proxy/index.ts
++++ b/src/helper/proxy/index.ts
+@@ -3,6 +3,7 @@
+  * Proxy Helper for Hono.
+  */
+ 
++import { HTTPException } from '../../http-exception'
+ import type { RequestHeader } from '../../utils/headers'
+ 
+ // https://datatracker.ietf.org/doc/html/rfc2616#section-13.5.1
+@@ -12,10 +13,14 @@ const hopByHopHeaders = [
+   'proxy-authenticate',
+   'proxy-authorization',
+   'te',
+-  'trailers',
++  'trailer',
+   'transfer-encoding',
++  'upgrade',
+ ]
+ 
++// https://datatracker.ietf.org/doc/html/rfc9110#section-5.6.2
++const ALLOWED_TOKEN_PATTERN = /^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$/
++
+ interface ProxyRequestInit extends Omit<RequestInit, 'headers'> {
+   raw?: Request
+   headers?:
+@@ -24,6 +29,18 @@ interface ProxyRequestInit extends Omit<RequestInit, 'headers'> {
+     | Record<RequestHeader, string | undefined>
+     | Record<string, string | undefined>
+   customFetch?: (request: Request) => Promise<Response>
++  /**
++   * Enable strict RFC 9110 compliance for Connection header processing.
++   *
++   * - `false` (default): Ignores Connection header to prevent potential
++   *   Hop-by-Hop Header Injection attacks. Recommended for untrusted clients.
++   * - `true`: Processes Connection header per RFC 9110 and removes listed headers.
++   *   Only use in trusted environments.
++   *
++   * @default false
++   * @see https://datatracker.ietf.org/doc/html/rfc9110#section-7.6.1
++   */
++  strictConnectionProcessing?: boolean
+ }
+ 
+ interface ProxyFetch {
+@@ -31,13 +48,35 @@ interface ProxyFetch {
+ }
+ 
+ const buildRequestInitFromRequest = (
+-  request: Request | undefined
++  request: Request | undefined,
++  strictConnectionProcessing: boolean
+ ): RequestInit & { duplex?: 'half' } => {
+   if (!request) {
+     return {}
+   }
+ 
+   const headers = new Headers(request.headers)
++
++  if (strictConnectionProcessing) {
++    // https://datatracker.ietf.org/doc/html/rfc9110#section-7.6.1
++    // Parse Connection header and remove listed headers (MUST per RFC 9110)
++    const connectionValue = headers.get('connection')
++    if (connectionValue) {
++      const headerNames = connectionValue.split(',').map((h) => h.trim())
++      // Validate header names per RFC 9110 Section 5.6.2 (token syntax)
++      const invalidHeaders = headerNames.filter((h) => !ALLOWED_TOKEN_PATTERN.test(h))
++
++      if (invalidHeaders.length > 0) {
++        throw new HTTPException(400, {
++          message: `Invalid Connection header value: ${invalidHeaders.join(', ')}`,
++        })
++      }
++      headerNames.forEach((headerName) => {
++        headers.delete(headerName)
++      })
++    }
++  }
++
+   hopByHopHeaders.forEach((header) => {
+     headers.delete(header)
+   })
+@@ -108,14 +147,26 @@ const preprocessRequestInit = (requestInit: RequestInit): RequestInit => {
+  *     },
+  *   })
+  * })
++ *
++ * // Strict RFC compliance mode (use only in trusted environments)
++ * app.get('/internal-proxy/:path', (c) => {
++ *   return proxy(`http://${internalServer}/${c.req.param('path')}`, {
++ *     ...c.req,
++ *     strictConnectionProcessing: true,
++ *   })
++ * })
+  * ```
+  */
+ export const proxy: ProxyFetch = async (input, proxyInit) => {
+-  const { raw, customFetch, ...requestInit } =
+-    proxyInit instanceof Request ? { raw: proxyInit } : proxyInit ?? {}
++  const {
++    raw,
++    customFetch,
++    strictConnectionProcessing = false,
++    ...requestInit
++  } = proxyInit instanceof Request ? { raw: proxyInit } : proxyInit ?? {}
+ 
+   const req = new Request(input, {
+-    ...buildRequestInitFromRequest(raw),
++    ...buildRequestInitFromRequest(raw, strictConnectionProcessing),
+     ...preprocessRequestInit(requestInit as RequestInit),
+   })
+   req.headers.delete('accept-encoding')

@@ -1,0 +1,33 @@
+diff --git a/src/middleware/serve-static/index.test.ts b/src/middleware/serve-static/index.test.ts
+index dd8a37fc..b24f7beb 100644
+--- a/src/middleware/serve-static/index.test.ts
++++ b/src/middleware/serve-static/index.test.ts
+@@ -79,6 +79,15 @@ describe('Serve Static Middleware', () => {
+     expect(await res.text()).toBe('404 Not Found')
+   })
+ 
++  it('Should not allow a backslash separator injection - /static/admin%5Csecret.txt', async () => {
++    const res = await app.fetch({
++      method: 'GET',
++      url: 'http://localhost/static/admin%5Csecret.txt',
++    } as Request)
++    expect(res.status).toBe(404)
++    expect(await res.text()).toBe('404 Not Found')
++  })
++
+   it('Should return a pre-compressed zstd response - /static/hello.html', async () => {
+     const app = new Hono().use(
+       '*',
+diff --git a/src/middleware/serve-static/index.ts b/src/middleware/serve-static/index.ts
+index 389f830d..aadfddb2 100644
+--- a/src/middleware/serve-static/index.ts
++++ b/src/middleware/serve-static/index.ts
+@@ -64,7 +64,7 @@ export const serveStatic = <E extends Env = Env>(
+     } else {
+       try {
+         filename = tryDecodeURI(c.req.path)
+-        if (/(?:^|[\/\\])\.{1,2}(?:$|[\/\\])|[\/\\]{2,}/.test(filename)) {
++        if (/(?:^|[\/\\])\.{1,2}(?:$|[\/\\])|[\/\\]{2,}|\\/.test(filename)) {
+           throw new Error()
+         }
+       } catch {

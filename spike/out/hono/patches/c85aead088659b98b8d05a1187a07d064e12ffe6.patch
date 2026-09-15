@@ -1,0 +1,92 @@
+diff --git a/src/request.test.ts b/src/request.test.ts
+index 8b894cba..7315d94f 100644
+--- a/src/request.test.ts
++++ b/src/request.test.ts
+@@ -236,6 +236,12 @@ describe('headers', () => {
+     expect(req.header('Content-Type')).toBe('application/json')
+     expect(req.header('ApiKey')).toBe('abc')
+   })
++
++  test('req.header() is not affected by a `__proto__` header name', () => {
++    const req = new HonoRequest(new Request('http://localhost', { headers: { __proto__: 'evil' } }))
++    const headers = req.header()
++    expect(Object.getPrototypeOf(headers)).toBeNull()
++  })
+ })
+ 
+ const text = '{"foo":"bar"}'
+diff --git a/src/request.ts b/src/request.ts
+index c3cfc32b..8a3c20cc 100644
+--- a/src/request.ts
++++ b/src/request.ts
+@@ -190,7 +190,7 @@ export class HonoRequest<P extends string = '/', I extends Input['out'] = {}> {
+       return this.raw.headers.get(name) ?? undefined
+     }
+ 
+-    const headerData: Record<string, string | undefined> = {}
++    const headerData: Record<string, string | undefined> = Object.create(null)
+     this.raw.headers.forEach((value, key) => {
+       headerData[key] = value
+     })
+diff --git a/src/utils/accept.test.ts b/src/utils/accept.test.ts
+index 145a6705..8b2aae3a 100644
+--- a/src/utils/accept.test.ts
++++ b/src/utils/accept.test.ts
+@@ -70,6 +70,12 @@ describe('parseAccept Comprehensive Tests', () => {
+       expect(result[0].params.key).toBe('2')
+       expect(result[0].params.KEY).toBe('3')
+     })
++
++    test('treats `__proto__` as a normal parameter without changing the prototype', () => {
++      const result = parseAccept('text/html;__proto__=x')
++      expect(Object.getPrototypeOf(result[0].params)).toBeNull()
++      expect(result[0].params['__proto__']).toBe('x')
++    })
+   })
+ 
+   describe('Media Type Edge Cases', () => {
+diff --git a/src/utils/accept.ts b/src/utils/accept.ts
+index 87f98e35..0d7a9f88 100644
+--- a/src/utils/accept.ts
++++ b/src/utils/accept.ts
+@@ -162,7 +162,7 @@ const getNextAcceptValue = (
+ ): [number, Accept | undefined] => {
+   const accept: Accept = {
+     type: '',
+-    params: {},
++    params: Object.create(null),
+     q: 1,
+   }
+   startIndex = consumeWhitespace(acceptHeader, startIndex)
+diff --git a/src/utils/url.test.ts b/src/utils/url.test.ts
+index c30213c0..7274d5db 100644
+--- a/src/utils/url.test.ts
++++ b/src/utils/url.test.ts
+@@ -359,5 +359,14 @@ describe('url', () => {
+         toString: [''],
+       })
+     })
++
++    it('should treat `__proto__` as a normal key without changing the prototype', () => {
++      const params = getQueryParams('http://example.com/?__proto__=a&__proto__=b') as Record<
++        string,
++        string[]
++      >
++      expect(Object.getPrototypeOf(params)).toBeNull()
++      expect(params['__proto__']).toEqual(['a', 'b'])
++    })
+   })
+ })
+diff --git a/src/utils/url.ts b/src/utils/url.ts
+index b4941663..65698d2e 100644
+--- a/src/utils/url.ts
++++ b/src/utils/url.ts
+@@ -252,7 +252,7 @@ const _getQueryParam = (
+     // fallback to default routine
+   }
+ 
+-  const results: Record<string, string> | Record<string, string[]> = {}
++  const results: Record<string, string> | Record<string, string[]> = Object.create(null)
+   encoded ??= /[%+]/.test(url)
+ 
+   let keyIndex = url.indexOf('?', 8)

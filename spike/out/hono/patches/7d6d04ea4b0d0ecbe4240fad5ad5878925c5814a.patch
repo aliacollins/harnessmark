@@ -1,0 +1,57 @@
+diff --git a/src/adapter/bun/conninfo.test.ts b/src/adapter/bun/conninfo.test.ts
+index 48b1c95b..ceb12046 100644
+--- a/src/adapter/bun/conninfo.test.ts
++++ b/src/adapter/bun/conninfo.test.ts
+@@ -68,4 +68,17 @@ describe('getConnInfo', () => {
+     })
+     expect(() => getConnInfo(c)).toThrowError(TypeError)
+   })
++  it('Should return empty remote when requestIP returns null', () => {
++    const c = new Context(new Request('http://localhost/'), {
++      env: {
++        requestIP() {
++          return null
++        },
++      },
++    })
++
++    const info = getConnInfo(c)
++
++    expect(info.remote).toEqual({})
++  })
+ })
+diff --git a/src/adapter/bun/conninfo.ts b/src/adapter/bun/conninfo.ts
+index 2198e2be..b069ec84 100644
+--- a/src/adapter/bun/conninfo.ts
++++ b/src/adapter/bun/conninfo.ts
+@@ -16,8 +16,17 @@ export const getConnInfo: GetConnInfo = (c: Context) => {
+   if (typeof server.requestIP !== 'function') {
+     throw new TypeError('server.requestIP is not a function.')
+   }
++
++  // https://bun.sh/docs/runtime/http/server#server-requestip-request
++  // Returns null for closed requests or Unix domain sockets.
+   const info = server.requestIP(c.req.raw)
+ 
++  if (!info) {
++    return {
++      remote: {},
++    }
++  }
++
+   return {
+     remote: {
+       address: info.address,
+diff --git a/src/adapter/bun/server.ts b/src/adapter/bun/server.ts
+index 8c16f2cf..3e88494e 100644
+--- a/src/adapter/bun/server.ts
++++ b/src/adapter/bun/server.ts
+@@ -12,7 +12,7 @@ export interface BunServer {
+     address: string
+     family: string
+     port: number
+-  }
++  } | null
+   upgrade<T>(
+     req: Request,
+     options?: {

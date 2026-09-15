@@ -1,0 +1,431 @@
+diff --git a/src/middleware/jwt/index.test.ts b/src/middleware/jwt/index.test.ts
+index a687cd44..eaecf47f 100644
+--- a/src/middleware/jwt/index.test.ts
++++ b/src/middleware/jwt/index.test.ts
+@@ -13,10 +13,10 @@ describe('JWT', () => {
+ 
+     const app = new Hono()
+ 
+-    app.use('/auth/*', jwt({ secret: 'a-secret' }))
+-    app.use('/auth-unicode/*', jwt({ secret: 'a-secret' }))
++    app.use('/auth/*', jwt({ secret: 'a-secret', alg: 'HS256' }))
++    app.use('/auth-unicode/*', jwt({ secret: 'a-secret', alg: 'HS256' }))
+     app.use('/nested/*', async (c, next) => {
+-      const auth = jwt({ secret: 'a-secret' })
++      const auth = jwt({ secret: 'a-secret', alg: 'HS256' })
+       return auth(c, next)
+     })
+ 
+@@ -131,10 +131,16 @@ describe('JWT', () => {
+ 
+     const app = new Hono()
+ 
+-    app.use('/auth/*', jwt({ secret: 'a-secret', headerName: 'x-custom-auth-header' }))
+-    app.use('/auth-unicode/*', jwt({ secret: 'a-secret', headerName: 'x-custom-auth-header' }))
++    app.use(
++      '/auth/*',
++      jwt({ secret: 'a-secret', alg: 'HS256', headerName: 'x-custom-auth-header' })
++    )
++    app.use(
++      '/auth-unicode/*',
++      jwt({ secret: 'a-secret', alg: 'HS256', headerName: 'x-custom-auth-header' })
++    )
+     app.use('/nested/*', async (c, next) => {
+-      const auth = jwt({ secret: 'a-secret', headerName: 'x-custom-auth-header' })
++      const auth = jwt({ secret: 'a-secret', alg: 'HS256', headerName: 'x-custom-auth-header' })
+       return auth(c, next)
+     })
+ 
+@@ -289,8 +295,8 @@ describe('JWT', () => {
+ 
+     const app = new Hono()
+ 
+-    app.use('/auth/*', jwt({ secret: 'a-secret', cookie: 'access_token' }))
+-    app.use('/auth-unicode/*', jwt({ secret: 'a-secret', cookie: 'access_token' }))
++    app.use('/auth/*', jwt({ secret: 'a-secret', alg: 'HS256', cookie: 'access_token' }))
++    app.use('/auth-unicode/*', jwt({ secret: 'a-secret', alg: 'HS256', cookie: 'access_token' }))
+ 
+     app.get('/auth/*', (c) => {
+       handlerExecuted = true
+@@ -378,7 +384,7 @@ describe('JWT', () => {
+   describe('Error handling with `cause`', () => {
+     const app = new Hono()
+ 
+-    app.use('/auth/*', jwt({ secret: 'a-secret' }))
++    app.use('/auth/*', jwt({ secret: 'a-secret', alg: 'HS256' }))
+     app.get('/auth/*', (c) => c.text('Authorized'))
+ 
+     app.onError((e, c) => {
+@@ -414,6 +420,7 @@ describe('JWT', () => {
+       '/auth/*',
+       jwt({
+         secret: 'a-secret',
++        alg: 'HS256',
+         cookie: {
+           key: 'cookie_name',
+           secret: 'cookie_secret',
+@@ -466,6 +473,7 @@ describe('JWT', () => {
+       '/auth/*',
+       jwt({
+         secret: 'a-secret',
++        alg: 'HS256',
+         cookie: {
+           key: 'cookie_name',
+           secret: 'cookie_secret',
+@@ -517,6 +525,7 @@ describe('JWT', () => {
+       '/auth/*',
+       jwt({
+         secret: 'a-secret',
++        alg: 'HS256',
+         cookie: {
+           key: 'cookie_name',
+           prefixOptions: 'host',
+@@ -568,6 +577,7 @@ describe('JWT', () => {
+       '/auth/*',
+       jwt({
+         secret: 'a-secret',
++        alg: 'HS256',
+         cookie: {
+           key: 'cookie_name',
+         },
+@@ -604,4 +614,47 @@ describe('JWT', () => {
+       expect(handlerExecuted).toBeTruthy()
+     })
+   })
++
++  describe('Security: Algorithm Confusion Attack Prevention', () => {
++    it('Should throw error when alg option is not provided', () => {
++      expect(() => {
++        // @ts-expect-error - intentionally testing without alg option
++        jwt({ secret: 'a-secret' })
++      }).toThrow('JWT auth middleware requires options for "alg"')
++    })
++
++    it('Should reject tokens with mismatched algorithm', async () => {
++      const app = new Hono()
++
++      // Configure middleware to expect RS256
++      app.use('/auth/*', jwt({ secret: 'a-secret', alg: 'RS256' }))
++      app.get('/auth/*', (c) => {
++        return c.json(c.get('jwtPayload'))
++      })
++
++      // Try to use a HS256 token (algorithm confusion attempt)
++      const hs256Token =
++        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtZXNzYWdlIjoiaGVsbG8gd29ybGQifQ.B54pAqIiLbu170tGQ1rY06Twv__0qSHTA0ioQPIOvFE'
++
++      const req = new Request('http://localhost/auth/a')
++      req.headers.set('Authorization', `Bearer ${hs256Token}`)
++      const res = await app.request(req)
++
++      // Should fail because the token algorithm doesn't match expected algorithm
++      expect(res.status).toBe(401)
++    })
++
++    it('Should require explicit alg specification in middleware options', () => {
++      // This should work - explicit alg specified
++      expect(() => {
++        jwt({ secret: 'a-secret', alg: 'HS256' })
++      }).not.toThrow()
++
++      // This should throw - alg not specified
++      expect(() => {
++        // @ts-expect-error - intentionally testing without alg option
++        jwt({ secret: 'a-secret' })
++      }).toThrow('JWT auth middleware requires options for "alg"')
++    })
++  })
+ })
+diff --git a/src/middleware/jwt/jwt.ts b/src/middleware/jwt/jwt.ts
+index 221f74c6..1a479dde 100644
+--- a/src/middleware/jwt/jwt.ts
++++ b/src/middleware/jwt/jwt.ts
+@@ -27,7 +27,7 @@ export type JwtVariables<T = any> = {
+  * @param {object} options - The options for the JWT middleware.
+  * @param {SignatureKey} [options.secret] - A value of your secret key.
+  * @param {string} [options.cookie] - If this value is set, then the value is retrieved from the cookie header using that value as a key, which is then validated as a token.
+- * @param {SignatureAlgorithm} [options.alg=HS256] - An algorithm type that is used for verifying. Available types are `HS256` | `HS384` | `HS512` | `RS256` | `RS384` | `RS512` | `PS256` | `PS384` | `PS512` | `ES256` | `ES384` | `ES512` | `EdDSA`.
++ * @param {SignatureAlgorithm} options.alg - An algorithm type that is used for verifying (required). Available types are `HS256` | `HS384` | `HS512` | `RS256` | `RS384` | `RS512` | `PS256` | `PS384` | `PS512` | `ES256` | `ES384` | `ES512` | `EdDSA`.
+  * @param {string} [options.headerName='Authorization'] - The name of the header to look for the JWT token. Default is 'Authorization'.
+  * @param {VerifyOptions} [options.verification] - Additional options for JWT payload verification.
+  * @returns {MiddlewareHandler} The middleware handler function.
+@@ -40,6 +40,7 @@ export type JwtVariables<T = any> = {
+  *   '/auth/*',
+  *   jwt({
+  *     secret: 'it-is-very-secret',
++ *     alg: 'HS256',
+  *     headerName: 'x-custom-auth-header', // Optional, default is 'Authorization'
+  *   })
+  * )
+@@ -54,7 +55,7 @@ export const jwt = (options: {
+   cookie?:
+     | string
+     | { key: string; secret?: string | BufferSource; prefixOptions?: CookiePrefixOptions }
+-  alg?: SignatureAlgorithm
++  alg: SignatureAlgorithm
+   headerName?: string
+   verification?: VerifyOptions
+ }): MiddlewareHandler => {
+@@ -64,6 +65,10 @@ export const jwt = (options: {
+     throw new Error('JWT auth middleware requires options for "secret"')
+   }
+ 
++  if (!options.alg) {
++    throw new Error('JWT auth middleware requires options for "alg"')
++  }
++
+   if (!crypto.subtle || !crypto.subtle.importKey) {
+     throw new Error('`crypto.subtle.importKey` is undefined. JWT auth middleware requires it.')
+   }
+diff --git a/src/utils/jwt/jwt.test.ts b/src/utils/jwt/jwt.test.ts
+index 18dd82d3..e8f5305a 100644
+--- a/src/utils/jwt/jwt.test.ts
++++ b/src/utils/jwt/jwt.test.ts
+@@ -6,7 +6,9 @@ import { signing } from './jws'
+ import * as JWT from './jwt'
+ import { verifyWithJwks } from './jwt'
+ import {
++  JwtAlgorithmMismatch,
+   JwtAlgorithmNotImplemented,
++  JwtAlgorithmRequired,
+   JwtPayloadRequiresAud,
+   JwtTokenAudience,
+   JwtTokenExpired,
+@@ -563,7 +565,7 @@ describe('JWT', () => {
+     let err = null
+     let authorized
+     try {
+-      authorized = await JWT.verify(tok, secret + 'invalid', AlgorithmTypes.HS256)
++      authorized = await JWT.verify(tok, secret + 'invalid', AlgorithmTypes.HS512)
+     } catch (e) {
+       err = e
+     }
+@@ -582,7 +584,7 @@ describe('JWT', () => {
+     let err = null
+     let authorized
+     try {
+-      authorized = await JWT.verify(tok, secret + 'invalid', AlgorithmTypes.HS256)
++      authorized = await JWT.verify(tok, secret + 'invalid', AlgorithmTypes.HS384)
+     } catch (e) {
+       err = e
+     }
+@@ -610,7 +612,7 @@ describe('JWT', () => {
+       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtZXNzYWdlIjoiaGVsbG8gd29ybGQifQ.qunGhchNXH_unqWXN6hB0Elhzr5SykSXVhklLti1aFI'
+     expect(tok).toEqual(expected)
+ 
+-    const verifiedPayload = await JWT.verify(tok, secret)
++    const verifiedPayload = await JWT.verify(tok, secret, AlgorithmTypes.HS256)
+     expect(verifiedPayload).not.toBeUndefined()
+     expect(verifiedPayload).toEqual(payload)
+ 
+@@ -624,7 +626,7 @@ describe('JWT', () => {
+     let err = null
+     let authorized
+     try {
+-      authorized = await JWT.verify(tok, invalidSecret)
++      authorized = await JWT.verify(tok, invalidSecret, AlgorithmTypes.HS256)
+     } catch (e) {
+       err = e
+     }
+@@ -931,3 +933,118 @@ async function generateEd25519Key(): Promise<CryptoKeyPair> {
+     ['sign', 'verify']
+   )
+ }
++
++describe('Security: Algorithm Confusion Attack Prevention', () => {
++  it('Should throw JwtAlgorithmRequired error when alg is not specified in verify()', async () => {
++    const payload = { message: 'hello world' }
++    const secret = 'a-secret'
++    const tok = await JWT.sign(payload, secret, AlgorithmTypes.HS256)
++
++    let err: JwtAlgorithmRequired | undefined
++    let authorized
++    try {
++      // @ts-expect-error - intentionally testing without alg parameter
++      authorized = await JWT.verify(tok, secret)
++    } catch (e) {
++      err = e as JwtAlgorithmRequired
++    }
++    expect(err).toBeInstanceOf(JwtAlgorithmRequired)
++    expect(err?.message).toBe('JWT verification requires "alg" option to be specified')
++    expect(authorized).toBeUndefined()
++  })
++
++  it('Should throw JwtAlgorithmRequired error when alg is undefined in options object', async () => {
++    const payload = { message: 'hello world' }
++    const secret = 'a-secret'
++    const tok = await JWT.sign(payload, secret, AlgorithmTypes.HS256)
++
++    let err: JwtAlgorithmRequired | undefined
++    let authorized
++    try {
++      // @ts-expect-error - intentionally testing with undefined alg
++      authorized = await JWT.verify(tok, secret, { alg: undefined })
++    } catch (e) {
++      err = e as JwtAlgorithmRequired
++    }
++    expect(err).toBeInstanceOf(JwtAlgorithmRequired)
++    expect(authorized).toBeUndefined()
++  })
++
++  it('Should prevent algorithm confusion attack (RS256 token verified with HS256 using public key)', async () => {
++    // Generate RSA key pair
++    const keyPair = await crypto.subtle.generateKey(
++      {
++        name: 'RSASSA-PKCS1-v1_5',
++        modulusLength: 2048,
++        publicExponent: new Uint8Array([1, 0, 1]),
++        hash: 'SHA-256',
++      },
++      true,
++      ['sign', 'verify']
++    )
++
++    const payload = { message: 'hello world' }
++
++    // Sign token with RS256 using private key
++    const tok = await JWT.sign(payload, keyPair.privateKey, AlgorithmTypes.RS256)
++
++    // Verify should succeed with RS256 and public key
++    const verified = await JWT.verify(tok, keyPair.publicKey, AlgorithmTypes.RS256)
++    expect(verified).toEqual(payload)
++
++    // Attempting to verify with HS256 using the public key should fail with algorithm mismatch
++    // This simulates the algorithm confusion attack scenario
++    let err: Error | undefined
++    let maliciousResult
++    try {
++      maliciousResult = await JWT.verify(tok, keyPair.publicKey, AlgorithmTypes.HS256)
++    } catch (e) {
++      err = e as Error
++    }
++    // The verification should fail because the header.alg (RS256) doesn't match options.alg (HS256)
++    expect(maliciousResult).toBeUndefined()
++    expect(err).toBeInstanceOf(JwtAlgorithmMismatch)
++  })
++
++  it('Should throw JwtAlgorithmMismatch when header.alg does not match options.alg', async () => {
++    const payload = { message: 'hello world' }
++    const secret = 'a-secret'
++
++    // Sign with HS512
++    const tok = await JWT.sign(payload, secret, AlgorithmTypes.HS512)
++
++    // Try to verify with HS256 (wrong algorithm)
++    let err: Error | undefined
++    let result
++    try {
++      result = await JWT.verify(tok, secret, AlgorithmTypes.HS256)
++    } catch (e) {
++      err = e as Error
++    }
++
++    expect(result).toBeUndefined()
++    expect(err).toBeInstanceOf(JwtAlgorithmMismatch)
++  })
++
++  it('Should require explicit alg specification to prevent default fallback attack', async () => {
++    const payload = { message: 'hello world' }
++    const secret = 'a-secret'
++
++    // Create a token with HS256
++    const tok = await JWT.sign(payload, secret, AlgorithmTypes.HS256)
++
++    // Verify with explicit HS256 should work
++    const verified = await JWT.verify(tok, secret, AlgorithmTypes.HS256)
++    expect(verified).toEqual(payload)
++
++    // Verify without alg should throw error (no default fallback)
++    let err: Error | undefined
++    try {
++      // @ts-expect-error - intentionally testing without alg parameter
++      await JWT.verify(tok, secret)
++    } catch (e) {
++      err = e as Error
++    }
++    expect(err).toBeInstanceOf(JwtAlgorithmRequired)
++  })
++})
+diff --git a/src/utils/jwt/jwt.ts b/src/utils/jwt/jwt.ts
+index 3801ad85..ca7ceb9d 100644
+--- a/src/utils/jwt/jwt.ts
++++ b/src/utils/jwt/jwt.ts
+@@ -10,6 +10,8 @@ import type { SignatureAlgorithm } from './jwa'
+ import { signing, verifying } from './jws'
+ import type { HonoJsonWebKey, SignatureKey } from './jws'
+ import {
++  JwtAlgorithmMismatch,
++  JwtAlgorithmRequired,
+   JwtHeaderInvalid,
+   JwtHeaderRequiresKid,
+   JwtPayloadRequiresAud,
+@@ -86,22 +88,30 @@ export type VerifyOptions = {
+ 
+ export type VerifyOptionsWithAlg = {
+   /** The algorithm used for decoding the token */
+-  alg?: SignatureAlgorithm
++  alg: SignatureAlgorithm
+ } & VerifyOptions
+ 
+ export const verify = async (
+   token: string,
+   publicKey: SignatureKey,
+-  algOrOptions?: SignatureAlgorithm | VerifyOptionsWithAlg
++  algOrOptions: SignatureAlgorithm | VerifyOptionsWithAlg
+ ): Promise<JWTPayload> => {
++  if (!algOrOptions) {
++    throw new JwtAlgorithmRequired()
++  }
++
+   const {
+-    alg = 'HS256',
++    alg,
+     iss,
+     nbf = true,
+     exp = true,
+     iat = true,
+     aud,
+-  } = typeof algOrOptions === 'string' ? { alg: algOrOptions } : algOrOptions || {}
++  } = typeof algOrOptions === 'string' ? { alg: algOrOptions } : algOrOptions
++
++  if (!alg) {
++    throw new JwtAlgorithmRequired()
++  }
+ 
+   const tokenParts = token.split('.')
+   if (tokenParts.length !== 3) {
+@@ -112,6 +122,9 @@ export const verify = async (
+   if (!isTokenHeader(header)) {
+     throw new JwtHeaderInvalid(header)
+   }
++  if (header.alg !== alg) {
++    throw new JwtAlgorithmMismatch(alg, header.alg)
++  }
+   const now = (Date.now() / 1000) | 0
+   if (nbf && payload.nbf && payload.nbf > now) {
+     throw new JwtTokenNotBefore(token)
+diff --git a/src/utils/jwt/types.ts b/src/utils/jwt/types.ts
+index 538726e5..e740c5d8 100644
+--- a/src/utils/jwt/types.ts
++++ b/src/utils/jwt/types.ts
+@@ -10,6 +10,20 @@ export class JwtAlgorithmNotImplemented extends Error {
+   }
+ }
+ 
++export class JwtAlgorithmRequired extends Error {
++  constructor() {
++    super('JWT verification requires "alg" option to be specified')
++    this.name = 'JwtAlgorithmRequired'
++  }
++}
++
++export class JwtAlgorithmMismatch extends Error {
++  constructor(expected: string, actual: string) {
++    super(`JWT algorithm mismatch: expected "${expected}", got "${actual}"`)
++    this.name = 'JwtAlgorithmMismatch'
++  }
++}
++
+ export class JwtTokenInvalid extends Error {
+   constructor(token: string) {
+     super(`invalid JWT token: ${token}`)

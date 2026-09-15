@@ -1,0 +1,39 @@
+diff --git a/src/client/utils.test.ts b/src/client/utils.test.ts
+index 7cbad86f..5257cb85 100644
+--- a/src/client/utils.test.ts
++++ b/src/client/utils.test.ts
+@@ -74,6 +74,21 @@ describe('replaceUrlParams', () => {
+     const replacedUrl = replaceUrlParam(url, params)
+     expect(replacedUrl).toBe('http://localhost/2/1')
+   })
++
++  it('Should replace correctly when parameter value contains $ characters', () => {
++    expect(replaceUrlParam('http://localhost/items/:id', { id: 'item$&' })).toBe(
++      'http://localhost/items/item$&'
++    )
++    expect(replaceUrlParam('http://localhost/items/:id', { id: '$100' })).toBe(
++      'http://localhost/items/$100'
++    )
++    expect(replaceUrlParam('http://localhost/users/:id', { id: 'test$`' })).toBe(
++      'http://localhost/users/test$`'
++    )
++    expect(replaceUrlParam('http://localhost/users/:id/posts', { id: "test$'" })).toBe(
++      "http://localhost/users/test$'/posts"
++    )
++  })
+ })
+ 
+ describe('buildSearchParams', () => {
+diff --git a/src/client/utils.ts b/src/client/utils.ts
+index 650bf849..7baed434 100644
+--- a/src/client/utils.ts
++++ b/src/client/utils.ts
+@@ -18,7 +18,7 @@ export const mergePath = (base: string, path: string) => {
+ export const replaceUrlParam = (urlString: string, params: Record<string, string | undefined>) => {
+   for (const [k, v] of Object.entries(params)) {
+     const reg = new RegExp('/:' + k + '(?:{[^/]+})?\\??(?=/|$)')
+-    urlString = urlString.replace(reg, v ? `/${v}` : '')
++    urlString = urlString.replace(reg, () => (v ? `/${v}` : ''))
+   }
+   return urlString
+ }

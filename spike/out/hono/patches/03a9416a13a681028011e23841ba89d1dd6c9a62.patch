@@ -1,0 +1,39 @@
+diff --git a/src/middleware/serve-static/index.test.ts b/src/middleware/serve-static/index.test.ts
+index b24f7beb..b80d5b0e 100644
+--- a/src/middleware/serve-static/index.test.ts
++++ b/src/middleware/serve-static/index.test.ts
+@@ -69,6 +69,21 @@ describe('Serve Static Middleware', () => {
+     expect(getContent).toBeCalledTimes(1)
+   })
+ 
++  it('Should return 200 response for empty string content - /static/empty.txt', async () => {
++    const onNotFound = vi.fn()
++    const app = new Hono().use(
++      '*',
++      baseServeStatic({
++        getContent: async () => '',
++        onNotFound,
++      })
++    )
++    const res = await app.request('/static/empty.txt')
++    expect(res.status).toBe(200)
++    expect(await res.text()).toBe('')
++    expect(onNotFound).not.toBeCalled()
++  })
++
+   it('Should not allow a directory traversal - /static/%2e%2e/static/hello.html', async () => {
+     const res = await app.fetch({
+       method: 'GET',
+diff --git a/src/middleware/serve-static/index.ts b/src/middleware/serve-static/index.ts
+index aadfddb2..de792fd8 100644
+--- a/src/middleware/serve-static/index.ts
++++ b/src/middleware/serve-static/index.ts
+@@ -89,7 +89,7 @@ export const serveStatic = <E extends Env = Env>(
+       return c.newResponse(content.body, content)
+     }
+ 
+-    if (content) {
++    if (content != null) {
+       const mimeType = (options.mimes && getMimeType(path, options.mimes)) || getMimeType(path)
+       c.header('Content-Type', mimeType || 'application/octet-stream')
+ 

@@ -1,0 +1,15 @@
+HarnessMark
+Copyright 2026 HarnessMark contributors
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+This distribution includes material harvested from third-party open-source
+projects (patches, commit messages and test output under spike/out/). That
+material is redistributed under its own upstream license, not relicensed.
+The upstream licenses and copyright notices are reproduced in
+THIRD_PARTY_NOTICES.md and, verbatim, under third_party/<project>/LICENSE.
+
+  hono   https://github.com/honojs/hono    MIT  Copyright (c) 2021 - present, Yusuke Wada and Hono contributors
+  immer  https://github.com/immerjs/immer  MIT  Copyright (c) 2017 Michel Weststrate
+
+HarnessMark is not affiliated with or endorsed by these projects.

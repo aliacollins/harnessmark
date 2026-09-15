@@ -1,0 +1,93 @@
+diff --git a/src/middleware/csrf/index.test.ts b/src/middleware/csrf/index.test.ts
+index b08ce1c2..e35cfcec 100644
+--- a/src/middleware/csrf/index.test.ts
++++ b/src/middleware/csrf/index.test.ts
+@@ -471,5 +471,46 @@ describe('CSRF by Middleware', () => {
+         expect(res.status).toBe(403)
+       })
+     })
++
++    describe('async IsAllowedSecFetchSiteHandler', () => {
++      const app = new Hono()
++      app.use(
++        '*',
++        csrf({
++          secFetchSite: async (secFetchSite, c) => {
++            await new Promise((r) => setTimeout(r, 10))
++            if (secFetchSite === 'same-origin') return true
++            if (c.req.path.startsWith('/webhook/')) return true
++            return false
++          },
++        })
++      )
++      app.post('/form', simplePostHandler)
++      app.post('/webhook/test', simplePostHandler)
++
++      it('should use async custom logic for allowed values', async () => {
++        const res = await app.request(
++          'http://localhost/form',
++          buildSimplePostRequestData({ secFetchSite: 'same-origin' })
++        )
++        expect(res.status).toBe(200)
++      })
++
++      it('should use async custom logic for path-based bypass', async () => {
++        const res = await app.request(
++          'http://localhost/webhook/test',
++          buildSimplePostRequestData({ secFetchSite: 'cross-site' })
++        )
++        expect(res.status).toBe(200)
++      })
++
++      it('should block when async custom logic returns false', async () => {
++        const res = await app.request(
++          'http://localhost/form',
++          buildSimplePostRequestData({ secFetchSite: 'cross-site' })
++        )
++        expect(res.status).toBe(403)
++      })
++    })
+   })
+ })
+diff --git a/src/middleware/csrf/index.ts b/src/middleware/csrf/index.ts
+index c7656b68..3942e56b 100644
+--- a/src/middleware/csrf/index.ts
++++ b/src/middleware/csrf/index.ts
+@@ -15,7 +15,10 @@ type SecFetchSite = (typeof secFetchSiteValues)[number]
+ const isSecFetchSite = (value: string): value is SecFetchSite =>
+   (secFetchSiteValues as readonly string[]).includes(value)
+ 
+-type IsAllowedSecFetchSiteHandler = (secFetchSite: SecFetchSite, context: Context) => boolean
++type IsAllowedSecFetchSiteHandler = (
++  secFetchSite: SecFetchSite,
++  context: Context
++) => boolean | Promise<boolean>
+ 
+ interface CSRFOptions {
+   origin?: string | string[] | IsAllowedOriginHandler
+@@ -120,7 +123,7 @@ export const csrf = (options?: CSRFOptions): MiddlewareHandler => {
+       return (secFetchSite) => optsSecFetchSite.includes(secFetchSite)
+     }
+   })(options?.secFetchSite)
+-  const isAllowedSecFetchSite = (secFetchSite: string | undefined, c: Context) => {
++  const isAllowedSecFetchSite = async (secFetchSite: string | undefined, c: Context) => {
+     if (secFetchSite === undefined) {
+       // denied always when sec-fetch-site header is not present
+       return false
+@@ -129,14 +132,14 @@ export const csrf = (options?: CSRFOptions): MiddlewareHandler => {
+     if (!isSecFetchSite(secFetchSite)) {
+       return false
+     }
+-    return secFetchSiteHandler(secFetchSite, c)
++    return await secFetchSiteHandler(secFetchSite, c)
+   }
+ 
+   return async function csrf(c, next) {
+     if (
+       !isSafeMethodRe.test(c.req.method) &&
+       isRequestedByFormElementRe.test(c.req.header('content-type') || 'text/plain') &&
+-      !isAllowedSecFetchSite(c.req.header('sec-fetch-site'), c) &&
++      !(await isAllowedSecFetchSite(c.req.header('sec-fetch-site'), c)) &&
+       !(await isAllowedOrigin(c.req.header('origin'), c))
+     ) {
+       const res = new Response('Forbidden', { status: 403 })

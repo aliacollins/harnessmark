@@ -1,0 +1,39 @@
+diff --git a/src/middleware/secure-headers/index.test.ts b/src/middleware/secure-headers/index.test.ts
+index e4dc4c8f..aa8d8dfc 100644
+--- a/src/middleware/secure-headers/index.test.ts
++++ b/src/middleware/secure-headers/index.test.ts
+@@ -187,7 +187,7 @@ describe('Secure Headers Middleware', () => {
+ 
+     const res = await app.request('/test')
+     expect(res.headers.get('Permissions-Policy')).toEqual(
+-      'fullscreen=(self), bluetooth=none, payment=(self "example.com"), sync-xhr=(), camera=none, microphone=*, ' +
++      'fullscreen=(self), bluetooth=(), payment=(self "example.com"), sync-xhr=(), camera=(), microphone=*, ' +
+         'geolocation=*, usb=(self "https://a.example.com" "https://b.example.com"), ' +
+         'accelerometer=("https://*.example.com"), gyroscope=(src), ' +
+         'magnetometer=("https://a.example.com" "https://b.example.com")'
+diff --git a/src/middleware/secure-headers/secure-headers.ts b/src/middleware/secure-headers/secure-headers.ts
+index 8e7eb4e6..55c76c21 100644
+--- a/src/middleware/secure-headers/secure-headers.ts
++++ b/src/middleware/secure-headers/secure-headers.ts
+@@ -297,15 +297,18 @@ function getPermissionsPolicyDirectives(policy: PermissionsPolicyOptions): strin
+       const kebabDirective = camelToKebab(directive)
+ 
+       if (typeof value === 'boolean') {
+-        return `${kebabDirective}=${value ? '*' : 'none'}`
++        return `${kebabDirective}=${value ? '*' : '()'}`
+       }
+ 
+       if (Array.isArray(value)) {
+         if (value.length === 0) {
+           return `${kebabDirective}=()`
+         }
+-        if (value.length === 1 && (value[0] === '*' || value[0] === 'none')) {
+-          return `${kebabDirective}=${value[0]}`
++        if (value.length === 1 && value[0] === '*') {
++          return `${kebabDirective}=*`
++        }
++        if (value.length === 1 && value[0] === 'none') {
++          return `${kebabDirective}=()`
+         }
+         const allowlist = value.map((item) => (['self', 'src'].includes(item) ? item : `"${item}"`))
+         return `${kebabDirective}=(${allowlist.join(' ')})`

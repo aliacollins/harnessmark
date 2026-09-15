@@ -1,0 +1,1734 @@
+diff --git a/src/jsx/base.ts b/src/jsx/base.ts
+index 9b9cb6d6..bfb2d4b9 100644
+--- a/src/jsx/base.ts
++++ b/src/jsx/base.ts
+@@ -2,8 +2,14 @@ import { raw } from '../helper/html'
+ import { escapeToBuffer, resolveCallbackSync, stringBufferToString } from '../utils/html'
+ import type { HtmlEscaped, HtmlEscapedString, StringBufferWithCallbacks } from '../utils/html'
+ import { DOM_RENDERER, DOM_MEMO } from './constants'
++import {
++  captureRenderContext,
++  createContext,
++  globalContexts,
++  runWithRenderContext,
++  useContext,
++} from './context'
+ import type { Context } from './context'
+-import { createContext, globalContexts, useContext } from './context'
+ import { domRenderers } from './intrinsic-element/common'
+ import * as intrinsicElementTags from './intrinsic-element/components'
+ import type {
+@@ -122,7 +128,6 @@ const childrenToStringToBuffer = (children: Child[], buffer: StringBufferWithCal
+   }
+ }
+ 
+-type LocalContexts = [Context<unknown>, unknown][]
+ export type Child =
+   | string
+   | Promise<string>
+@@ -138,7 +143,7 @@ export class JSXNode implements HtmlEscaped {
+   key?: string
+   children: Child[]
+   isEscaped: true = true as const
+-  localContexts?: LocalContexts
++  suspendedContext?: <T>(callback: () => T) => T
+   constructor(tag: string | Function, props: Props, children: Child[]) {
+     if (typeof tag !== 'function' && !isValidTagName(tag)) {
+       throw new Error(`Invalid JSX tag name: ${tag}`)
+@@ -159,22 +164,16 @@ export class JSXNode implements HtmlEscaped {
+   }
+ 
+   toString(): string | Promise<string> {
+-    const buffer: StringBufferWithCallbacks = [''] as StringBufferWithCallbacks
+-    this.localContexts?.forEach(([context, value]) => {
+-      context.values.push(value)
+-    })
+-    try {
++    const render = () => {
++      const buffer: StringBufferWithCallbacks = [''] as StringBufferWithCallbacks
+       this.toStringToBuffer(buffer)
+-    } finally {
+-      this.localContexts?.forEach(([context]) => {
+-        context.values.pop()
+-      })
++      return buffer.length === 1
++        ? 'callbacks' in buffer
++          ? resolveCallbackSync(raw(buffer[0], buffer.callbacks)).toString()
++          : buffer[0]
++        : stringBufferToString(buffer, buffer.callbacks)
+     }
+-    return buffer.length === 1
+-      ? 'callbacks' in buffer
+-        ? resolveCallbackSync(raw(buffer[0], buffer.callbacks)).toString()
+-        : buffer[0]
+-      : stringBufferToString(buffer, buffer.callbacks)
++    return this.suspendedContext ? this.suspendedContext(render) : runWithRenderContext(render)
+   }
+ 
+   toStringToBuffer(buffer: StringBufferWithCallbacks): void {
+@@ -270,13 +269,13 @@ class JSXFunctionNode extends JSXNode {
+       if (globalContexts.length === 0) {
+         buffer.unshift('', res)
+       } else {
+-        // save current contexts for resuming
+-        const currentContexts: LocalContexts = globalContexts.map((c) => [c, c.values.at(-1)])
++        // save the current context state for resuming the suspended subtree
++        const suspendedContext = captureRenderContext()
+         buffer.unshift(
+           '',
+           res.then((childRes) => {
+             if (childRes instanceof JSXNode) {
+-              childRes.localContexts = currentContexts
++              childRes.suspendedContext = suspendedContext
+             }
+             return childRes
+           })
+diff --git a/src/jsx/components.test.tsx b/src/jsx/components.test.tsx
+index 0da31de1..8cd28643 100644
+--- a/src/jsx/components.test.tsx
++++ b/src/jsx/components.test.tsx
+@@ -1,6 +1,7 @@
+ /* eslint-disable @typescript-eslint/no-explicit-any */
+ /** @jsxImportSource ./ */
+ import { JSDOM } from 'jsdom'
++import { raw } from '../helper/html'
+ import type { HtmlEscapedString } from '../utils/html'
+ import { HtmlEscapedCallbackPhase, resolveCallback as rawResolveCallback } from '../utils/html'
+ import { ErrorBoundary } from './components'
+@@ -514,6 +515,115 @@ d.remove()
+         '<div>Out Of Service</div>'
+       )
+     })
++
++    it('renders fallback and reports error once when multiple children reject', async () => {
++      let fallbackRenderCount = 0
++      let onErrorCount = 0
++      const stream = renderToReadableStream(
++        <ErrorBoundary
++          fallbackRender={() => {
++            fallbackRenderCount++
++            return <Fallback />
++          }}
++          onError={() => {
++            onErrorCount++
++          }}
++        >
++          <Suspense fallback={<p>Loading...</p>}>
++            <Component id={1} />
++          </Suspense>
++          <Suspense fallback={<p>Loading...</p>}>
++            <Component id={2} />
++          </Suspense>
++          <Suspense fallback={<p>Loading...</p>}>
++            <Component id={3} />
++          </Suspense>
++        </ErrorBoundary>
++      )
++
++      handlers[1].reject()
++      handlers[2].reject()
++      handlers[3].resolve(undefined)
++
++      const chunks = []
++      const textDecoder = new TextDecoder()
++      for await (const chunk of stream as any) {
++        chunks.push(textDecoder.decode(chunk))
++      }
++
++      expect(replacementResult(`<html><body>${chunks.join('')}</body></html>`)).toEqual(
++        '<div>Out Of Service</div>'
++      )
++      expect(fallbackRenderCount).toBe(1)
++      expect(onErrorCount).toBe(1)
++    })
++
++    it('preserves callbacks from a thenable fallback', async () => {
++      const fallback = Promise.resolve(
++        raw('<span>Recovering</span>', [
++          ({ phase }) =>
++            phase === HtmlEscapedCallbackPhase.Stream
++              ? Promise.resolve('<span>Recovered</span>')
++              : undefined,
++        ])
++      )
++      const stream = renderToReadableStream(
++        <ErrorBoundary fallback={fallback}>
++          <Suspense fallback={<p>Loading...</p>}>
++            <Component id={1} />
++          </Suspense>
++        </ErrorBoundary>
++      )
++
++      handlers[1].reject()
++
++      const chunks = []
++      const textDecoder = new TextDecoder()
++      for await (const chunk of stream as any) {
++        chunks.push(textDecoder.decode(chunk))
++      }
++
++      expect(replacementResult(`<html><body>${chunks.join('')}</body></html>`)).toEqual(
++        '<span>Recovering</span><span>Recovered</span>'
++      )
++    })
++
++    it('waits for an in-flight async fallback when multiple children reject', async () => {
++      let resolveFallback!: (value: HtmlEscapedString) => void
++      const fallback = new Promise<HtmlEscapedString>((resolve) => {
++        resolveFallback = resolve
++      })
++
++      const stream = renderToReadableStream(
++        <ErrorBoundary fallback={fallback}>
++          <Suspense fallback={<p>Loading...</p>}>
++            <Component id={1} />
++          </Suspense>
++          <Suspense fallback={<p>Loading...</p>}>
++            <Component id={2} />
++          </Suspense>
++          <Suspense fallback={<p>Loading...</p>}>
++            <Component id={3} />
++          </Suspense>
++        </ErrorBoundary>
++      )
++
++      handlers[1].reject()
++      handlers[2].reject()
++      handlers[3].resolve(undefined)
++      await Promise.resolve()
++      resolveFallback(<Fallback />)
++
++      const chunks = []
++      const textDecoder = new TextDecoder()
++      for await (const chunk of stream as any) {
++        chunks.push(textDecoder.decode(chunk))
++      }
++
++      expect(replacementResult(`<html><body>${chunks.join('')}</body></html>`)).toEqual(
++        '<div>Out Of Service</div>'
++      )
++    })
+   })
+ 
+   describe('streaming : nested', async () => {
+diff --git a/src/jsx/components.ts b/src/jsx/components.ts
+index bec77303..65a3053d 100644
+--- a/src/jsx/components.ts
++++ b/src/jsx/components.ts
+@@ -3,7 +3,7 @@ import type { HtmlEscapedCallback, HtmlEscapedString } from '../utils/html'
+ import { HtmlEscapedCallbackPhase, resolveCallback } from '../utils/html'
+ import { jsx, Fragment } from './base'
+ import { DOM_RENDERER } from './constants'
+-import { useContext } from './context'
++import { captureRenderContext, useContext } from './context'
+ import { ErrorBoundary as ErrorBoundaryDomRenderer } from './dom/components'
+ import type { HasRenderToDom } from './dom/render'
+ import { StreamingContext } from './streaming'
+@@ -18,8 +18,11 @@ export const childrenToString = async (children: Child[]): Promise<HtmlEscapedSt
+       .map((c) => (c == null || typeof c === 'boolean' ? '' : c.toString())) as HtmlEscapedString[]
+   } catch (e) {
+     if (e instanceof Promise) {
++      // Capture before `await`: on the fallback path the render context is
++      // only observable during this synchronous window.
++      const resume = captureRenderContext()
+       await e
+-      return childrenToString(children)
++      return resume(() => childrenToString(children))
+     } else {
+       throw e
+     }
+@@ -66,58 +69,84 @@ export const ErrorBoundary: FC<
+ 
+   const nonce = useContext(StreamingContext)?.scriptNonce
+ 
+-  let fallbackStr: string | undefined
+-  const resolveFallbackStr = async () => {
+-    const awaitedFallback = await fallback
+-    if (typeof awaitedFallback === 'string') {
+-      fallbackStr = awaitedFallback
+-    } else {
+-      fallbackStr = await awaitedFallback?.toString()
+-      if (typeof fallbackStr === 'string') {
+-        // should not apply `raw` if fallbackStr is undefined, null, or boolean
+-        fallbackStr = raw(fallbackStr)
++  let resume: ReturnType<typeof captureRenderContext> | undefined
++  const getResume = () => (resume ||= captureRenderContext())
++
++  let fallbackStrPromise: Promise<HtmlEscapedString | string | undefined> | undefined
++  const resolveFallbackStr = (): Promise<HtmlEscapedString | string | undefined> =>
++    (fallbackStrPromise ||= (async () => {
++      const awaitedFallback = await fallback
++      if (typeof awaitedFallback === 'string') {
++        return awaitedFallback
++      } else {
++        const fallbackResult = await getResume()(() => awaitedFallback?.toString())
++        if (typeof fallbackResult === 'string') {
++          // Don't apply `raw` to undefined/null/boolean. Preserve callbacks from
++          // the stringified result, or the original thenable for plain strings.
++          return raw(
++            fallbackResult,
++            (fallbackResult as HtmlEscapedString).callbacks ||
++              (awaitedFallback as HtmlEscapedString)?.callbacks
++          )
++        }
+       }
+-    }
+-  }
+-  const fallbackRes = (error: Error): HtmlEscapedString | Promise<HtmlEscapedString> => {
+-    onError?.(error)
+-    return (fallbackStr ||
+-      (fallbackRender && jsx(Fragment, {}, fallbackRender(error) as HtmlEscapedString)) ||
+-      '') as HtmlEscapedString
++    })())
++  const renderFallback = async (error: Error): Promise<HtmlEscapedString> => {
++    const fallbackStr = await resolveFallbackStr()
++    return getResume()(async () => {
++      onError?.(error)
++      const fallbackRes = (
++        fallbackStr !== undefined
++          ? fallbackStr
++          : (fallbackRender && jsx(Fragment, {}, fallbackRender(error) as HtmlEscapedString)) || ''
++      ) as HtmlEscapedString
++      const fallbackResString = await Fragment({
++        children: fallbackRes,
++      }).toString()
++      return raw(
++        fallbackResString,
++        (fallbackResString as HtmlEscapedString).callbacks || fallbackRes.callbacks
++      )
++    })
+   }
+   let resArray: HtmlEscapedString[] | Promise<HtmlEscapedString[]>[] = []
+   try {
+     resArray = children.map(resolveChildEarly) as unknown as HtmlEscapedString[]
+   } catch (e) {
+-    await resolveFallbackStr()
++    const resume = getResume()
+     if (e instanceof Promise) {
+       resArray = [
+-        e.then(() => childrenToString(children as Child[])).catch((e) => fallbackRes(e)),
++        e
++          .then(() => resume(() => childrenToString(children as Child[])))
++          .catch((e) => renderFallback(e)),
+       ] as Promise<HtmlEscapedString[]>[]
+     } else {
+-      resArray = [fallbackRes(e as Error) as HtmlEscapedString]
++      resArray = [await renderFallback(e as Error)]
+     }
+   }
+ 
+   if (resArray.some((res) => (res as {}) instanceof Promise)) {
+-    await resolveFallbackStr()
++    // Prime the context capture while still synchronous: a child that returned
++    // a Promise from `resolveChildEarly` skipped the `catch`, so the deferred
++    // `catchCallback` would otherwise capture too late.
++    getResume()
+     const index = errorBoundaryCounter++
+     const replaceRe = RegExp(`(<template id="E:${index}"></template>.*?)(.*?)(<!--E:${index}-->)`)
+-    const caught = false
++    let caught = false
+     const catchCallback = async ({ error, buffer }: { error: Error; buffer?: [string] }) => {
+       if (caught) {
+         return ''
+       }
++      caught = true
+ 
+-      const fallbackResString = await Fragment({
+-        children: fallbackRes(error),
+-      }).toString()
++      const fallbackResString = await renderFallback(error)
++      const fallbackCallbacks = fallbackResString.callbacks
+       if (buffer) {
+         buffer[0] = buffer[0].replace(replaceRe, fallbackResString)
++        return fallbackCallbacks?.length ? raw('', fallbackCallbacks) : ''
+       }
+-      return buffer
+-        ? ''
+-        : `<template data-hono-target="E:${index}">${fallbackResString}</template><script>
++      return raw(
++        `<template data-hono-target="E:${index}">${fallbackResString}</template><script>
+ ((d,c,n) => {
+ c=d.currentScript.previousSibling
+ d=d.getElementById('E:${index}')
+@@ -125,7 +154,9 @@ if(!d)return
+ do{n=d.nextSibling;n.remove()}while(n.nodeType!=8||n.nodeValue!='E:${index}')
+ d.replaceWith(c.content)
+ })(document)
+-</script>`
++</script>`,
++        fallbackCallbacks
++      )
+     }
+ 
+     let error: unknown
+diff --git a/src/jsx/context-isolation.test.ts b/src/jsx/context-isolation.test.ts
+new file mode 100644
+index 00000000..18ac9324
+--- /dev/null
++++ b/src/jsx/context-isolation.test.ts
+@@ -0,0 +1,650 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++
++/**
++ * These tests exercise the non-`AsyncLocalStorage` fallback path. They force
++ * every `AsyncLocalStorage` acquisition route to fail (and keep it disabled
++ * while the module lazily probes for it), then verify the React-style
++ * fail-safe: reading context after `await` returns the default value and never
++ * another concurrent request's value.
++ */
++describe('JSX context isolation without AsyncLocalStorage', () => {
++  let originalGetBuiltinModule: unknown
++  let originalMainModule: unknown
++  let warnSpy: ReturnType<typeof vi.spyOn>
++
++  beforeEach(() => {
++    // Disable every route `loadAsyncLocalStorage()` tries. These stay in effect
++    // through the first render so the lazy probe caches "unavailable".
++    vi.resetModules()
++    originalGetBuiltinModule = (process as { getBuiltinModule?: unknown }).getBuiltinModule
++    ;(process as { getBuiltinModule?: unknown }).getBuiltinModule = undefined
++    originalMainModule = (process as { mainModule?: unknown }).mainModule
++    ;(process as { mainModule?: unknown }).mainModule = undefined
++    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
++  })
++
++  afterEach(() => {
++    ;(process as { getBuiltinModule?: unknown }).getBuiltinModule = originalGetBuiltinModule
++    ;(process as { mainModule?: unknown }).mainModule = originalMainModule
++    vi.unstubAllGlobals()
++    vi.resetModules()
++    warnSpy.mockRestore()
++  })
++
++  it('falls back to the default value after await and never leaks across concurrent renders', async () => {
++    const { createContext, useContext, jsx } = await import('./index')
++
++    const SessionContext = createContext<{ username: string; role: string }>({
++      username: 'nobody',
++      role: 'none',
++    })
++
++    const waits = new Map<string, Promise<void>>()
++    const entered = new Map<string, () => void>()
++
++    const AdminDashboard = async () => {
++      const initialSession = useContext(SessionContext)
++      entered.get(initialSession.username)?.()
++      await waits.get(initialSession.username)
++      const session = useContext(SessionContext)
++      if (session.role !== 'admin') {
++        return jsx('div', {}, `Access Denied for ${session.username}`)
++      }
++      return jsx('div', {}, `Welcome Admin ${session.username}. Secret Data: 42`)
++    }
++
++    const render = async (username: string, role: string): Promise<string> =>
++      `${await jsx(
++        SessionContext.Provider,
++        { value: { username, role } },
++        jsx(AdminDashboard, {})
++      ).toString()}`
++
++    let resolveAdmin!: () => void
++    let resolveAttacker!: () => void
++    waits.set(
++      'admin',
++      new Promise<void>((resolve) => {
++        resolveAdmin = resolve
++      })
++    )
++    waits.set(
++      'attacker',
++      new Promise<void>((resolve) => {
++        resolveAttacker = resolve
++      })
++    )
++    const adminEntered = new Promise<void>((resolve) => {
++      entered.set('admin', resolve)
++    })
++    const attackerEntered = new Promise<void>((resolve) => {
++      entered.set('attacker', resolve)
++    })
++
++    const adminReq = render('admin', 'admin')
++    const attackerReq = render('attacker', 'guest')
++
++    await Promise.all([adminEntered, attackerEntered])
++    resolveAttacker()
++    await Promise.resolve()
++    resolveAdmin()
++
++    const [adminHtml, attackerHtml] = await Promise.all([adminReq, attackerReq])
++
++    // Without AsyncLocalStorage the post-await read sees the default value —
++    // the same fail-safe React's request storage degrades to. The critical
++    // guarantee is that neither render observes the other request's value.
++    expect(adminHtml).toBe('<div>Access Denied for nobody</div>')
++    expect(attackerHtml).toBe('<div>Access Denied for nobody</div>')
++  })
++
++  it('warns once when a post-await read falls back to the default value', async () => {
++    const { createContext, useContext, jsx } = await import('./index')
++
++    const ThemeContext = createContext('default')
++    const Reader = async () => {
++      await new Promise((r) => setTimeout(r, 10))
++      return jsx('div', {}, useContext(ThemeContext))
++    }
++    const render = async () =>
++      `${await jsx(ThemeContext.Provider, { value: 'provided' }, jsx(Reader, {})).toString()}`
++
++    expect(await render()).toBe('<div>default</div>')
++    expect(await render()).toBe('<div>default</div>')
++
++    // Degrading to the default value is reported once, not per read.
++    expect(warnSpy).toHaveBeenCalledTimes(1)
++    expect(warnSpy.mock.calls[0][0]).toContain('AsyncLocalStorage')
++  })
++
++  it('clears the fallback warning window after an async render rejects', async () => {
++    const { createContext, useContext, jsx } = await import('./index')
++
++    const ThemeContext = createContext('default')
++    const Broken = async () => {
++      await Promise.resolve()
++      throw new Error('boom')
++    }
++
++    await expect(jsx(Broken, {}).toString()).rejects.toThrow('boom')
++
++    useContext(ThemeContext)
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('finds AsyncLocalStorage via process.mainModule.require (Node < 20.16 CJS)', async () => {
++    // Re-enable only the legacy route: a CJS entrypoint exposes the main
++    // module's `require` even where `process.getBuiltinModule` doesn't exist.
++    // Context must then survive `await` with no warning.
++    const { AsyncLocalStorage } = await import('node:async_hooks')
++    ;(process as { mainModule?: unknown }).mainModule = {
++      require: (specifier: string) =>
++        specifier === 'node:async_hooks' ? { AsyncLocalStorage } : {},
++    }
++
++    const { createContext, useContext, jsx } = await import('./index')
++
++    const ThemeContext = createContext('default')
++    const Reader = async () => {
++      await new Promise((r) => setTimeout(r, 10))
++      return jsx('div', {}, useContext(ThemeContext))
++    }
++
++    expect(
++      `${await jsx(ThemeContext.Provider, { value: 'provided' }, jsx(Reader, {})).toString()}`
++    ).toBe('<div>provided</div>')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('keeps a synchronous render synchronous and does not warn', async () => {
++    const { createContext, useContext, jsx } = await import('./index')
++
++    const ThemeContext = createContext('light')
++    const Consumer = () => jsx('span', {}, useContext(ThemeContext))
++
++    const result = jsx(ThemeContext.Provider, { value: 'dark' }, jsx(Consumer, {})).toString()
++
++    // A purely synchronous render must not be forced async by the serializer.
++    expect(result).toBe('<span>dark</span>')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  const drainStream = async (stream: unknown): Promise<string> => {
++    const textDecoder = new TextDecoder()
++    let html = ''
++    for await (const chunk of stream as AsyncIterable<Uint8Array>) {
++      html += textDecoder.decode(chunk)
++    }
++    return html
++  }
++
++  it('restores provider values for the subtree returned by a resumed async component', async () => {
++    const { createContext, useContext, jsx } = await import('./index')
++
++    const ThemeContext = createContext('default')
++    const Inner = () => jsx('span', {}, useContext(ThemeContext))
++    const Outer = async () => {
++      await new Promise((r) => setTimeout(r, 10))
++      // Unlike a useContext() call here in the async body (which degrades to
++      // the default), the returned subtree renders with the context values
++      // snapshotted at suspension and restored by the renderer.
++      return jsx(Inner, {})
++    }
++
++    expect(
++      `${await jsx(ThemeContext.Provider, { value: 'provided' }, jsx(Outer, {})).toString()}`
++    ).toBe('<span>provided</span>')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('resumes a Suspense-deferred subtree in the captured request store', async () => {
++    const { createContext, useContext, jsx } = await import('./index')
++    const { Suspense, renderToReadableStream } = await import('./streaming')
++    const { use } = await import('./hooks')
++
++    // A `use()`-suspended child takes the deferred re-render path, which on the
++    // fallback path re-establishes the captured render store synchronously.
++    const deferred = new Promise<string>((resolve) => setTimeout(() => resolve('done'), 10))
++    const ThemeContext = createContext('default')
++    const Inner = () => jsx('span', {}, useContext(ThemeContext))
++    const Content = () => {
++      const value = use(deferred)
++      return jsx(ThemeContext.Provider, { value }, jsx(Inner, {}))
++    }
++
++    const html = await drainStream(
++      renderToReadableStream(jsx(Suspense, { fallback: jsx('p', {}, 'Loading') }, jsx(Content, {})))
++    )
++
++    expect(html).toContain('Loading')
++    expect(html).toContain('<span>done</span>')
++    // Providers inside the resumed subtree render in the request store, not in
++    // the module-global fallback — so no degradation warning fires.
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('resumes a Suspense-deferred subtree with outer provider values', async () => {
++    const { createContext, useContext, jsx } = await import('./index')
++    const { Suspense, renderToReadableStream } = await import('./streaming')
++    const { use } = await import('./hooks')
++
++    const deferred = new Promise<string>((resolve) => setTimeout(() => resolve('done'), 10))
++    const ThemeContext = createContext('default')
++    const Content = () => {
++      use(deferred)
++      return jsx('span', {}, useContext(ThemeContext))
++    }
++
++    const html = await drainStream(
++      renderToReadableStream(
++        jsx(
++          ThemeContext.Provider,
++          { value: 'outer' },
++          jsx(Suspense, { fallback: jsx('p', {}, 'Loading') }, jsx(Content, {}))
++        )
++      )
++    )
++
++    expect(html).toContain('Loading')
++    expect(html).toContain('<span>outer</span>')
++    expect(html).not.toContain('<span>default</span>')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('renders Suspense fallback with outer provider values', async () => {
++    const { createContext, useContext, jsx } = await import('./index')
++    const { Suspense, renderToReadableStream } = await import('./streaming')
++    const { use } = await import('./hooks')
++
++    const deferred = new Promise<string>((resolve) => setTimeout(() => resolve('done'), 10))
++    const ThemeContext = createContext('default')
++    const Fallback = () => jsx('p', {}, `Loading ${useContext(ThemeContext)}`)
++    const Content = () => {
++      const value = use(deferred)
++      return jsx('span', {}, value)
++    }
++
++    const html = await drainStream(
++      renderToReadableStream(
++        jsx(
++          ThemeContext.Provider,
++          { value: 'outer' },
++          jsx(Suspense, { fallback: jsx(Fallback, {}) }, jsx(Content, {}))
++        )
++      )
++    )
++
++    expect(html).toContain('<p>Loading outer</p>')
++    expect(html).toContain('<span>done</span>')
++    expect(html).not.toContain('default')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('restores nested provider values in a resumed Suspense subtree', async () => {
++    const { createContext, useContext, jsx, Fragment } = await import('./index')
++    const { Suspense, renderToReadableStream } = await import('./streaming')
++    const { use } = await import('./hooks')
++
++    const deferred = new Promise<string>((resolve) => setTimeout(() => resolve('done'), 10))
++    const ThemeContext = createContext('default')
++    const Inner = () => jsx('span', {}, useContext(ThemeContext))
++    const OuterSibling = () => jsx('em', {}, useContext(ThemeContext))
++    const Content = () => {
++      use(deferred)
++      return jsx(
++        Fragment,
++        {},
++        jsx(ThemeContext.Provider, { value: 'inner' }, jsx(Inner, {})),
++        jsx(OuterSibling, {})
++      )
++    }
++
++    const html = await drainStream(
++      renderToReadableStream(
++        jsx(
++          ThemeContext.Provider,
++          { value: 'outer' },
++          jsx(Suspense, { fallback: jsx('p', {}, 'Loading') }, jsx(Content, {}))
++        )
++      )
++    )
++
++    expect(html).toContain('<span>inner</span><em>outer</em>')
++    expect(html).not.toContain('default')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('keeps sibling Suspense resume contexts isolated when they resolve out of order', async () => {
++    const { createContext, useContext, jsx, Fragment } = await import('./index')
++    const { Suspense, renderToReadableStream } = await import('./streaming')
++    const { use } = await import('./hooks')
++
++    const ThemeContext = createContext('default')
++    const waits = new Map<string, Promise<void>>()
++    const entered = new Map<string, () => void>()
++    let resolveFirst!: () => void
++    let resolveSecond!: () => void
++    waits.set(
++      'first',
++      new Promise<void>((resolve) => {
++        resolveFirst = resolve
++      })
++    )
++    waits.set(
++      'second',
++      new Promise<void>((resolve) => {
++        resolveSecond = resolve
++      })
++    )
++    const firstEntered = new Promise<void>((resolve) => {
++      entered.set('first', resolve)
++    })
++    const secondEntered = new Promise<void>((resolve) => {
++      entered.set('second', resolve)
++    })
++    const Content = ({ name }: { name: string }) => {
++      entered.get(name)?.()
++      use(waits.get(name)!)
++      return jsx('span', {}, `${name}:${useContext(ThemeContext)}`)
++    }
++
++    const htmlPromise = drainStream(
++      renderToReadableStream(
++        jsx(
++          Fragment,
++          {},
++          jsx(
++            ThemeContext.Provider,
++            { value: 'one' },
++            jsx(
++              Suspense,
++              { fallback: jsx('p', {}, 'Loading one') },
++              jsx(Content, { name: 'first' })
++            )
++          ),
++          jsx(
++            ThemeContext.Provider,
++            { value: 'two' },
++            jsx(
++              Suspense,
++              { fallback: jsx('p', {}, 'Loading two') },
++              jsx(Content, { name: 'second' })
++            )
++          )
++        )
++      )
++    )
++
++    await Promise.all([firstEntered, secondEntered])
++    resolveSecond()
++    await Promise.resolve()
++    resolveFirst()
++
++    const html = await htmlPromise
++
++    expect(html).toContain('<span>first:one</span>')
++    expect(html).toContain('<span>second:two</span>')
++    expect(html).not.toContain('default')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('resumes ErrorBoundary-deferred children in the captured request store', async () => {
++    const { createContext, useContext, jsx, ErrorBoundary } = await import('./index')
++    const { renderToReadableStream } = await import('./streaming')
++
++    const deferred = new Promise<string>((resolve) => setTimeout(() => resolve('done'), 10))
++    let resolved: string | undefined
++    deferred.then((value) => {
++      resolved = value
++    })
++    const ThemeContext = createContext('default')
++    const Inner = () => jsx('span', {}, useContext(ThemeContext))
++    const Content = () => {
++      if (!resolved) {
++        // Suspend like use() does so ErrorBoundary defers the re-render.
++        throw deferred
++      }
++      return jsx(ThemeContext.Provider, { value: resolved }, jsx(Inner, {}))
++    }
++
++    const html = await drainStream(
++      renderToReadableStream(
++        jsx(ErrorBoundary, { fallback: jsx('p', {}, 'Failed') }, jsx(Content, {}))
++      )
++    )
++
++    expect(html).toContain('<span>done</span>')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('resumes ErrorBoundary-deferred children with outer provider values', async () => {
++    const { createContext, useContext, jsx, ErrorBoundary } = await import('./index')
++    const { renderToReadableStream } = await import('./streaming')
++
++    const deferred = new Promise<string>((resolve) => setTimeout(() => resolve('done'), 10))
++    let resolved: string | undefined
++    deferred.then((value) => {
++      resolved = value
++    })
++    const ThemeContext = createContext('default')
++    const Content = () => {
++      if (!resolved) {
++        // Suspend like use() does so ErrorBoundary defers the re-render.
++        throw deferred
++      }
++      return jsx('span', {}, useContext(ThemeContext))
++    }
++
++    const html = await drainStream(
++      renderToReadableStream(
++        jsx(
++          ThemeContext.Provider,
++          { value: 'outer' },
++          jsx(ErrorBoundary, { fallback: jsx('p', {}, 'Failed') }, jsx(Content, {}))
++        )
++      )
++    )
++
++    expect(html).toContain('<span>outer</span>')
++    expect(html).not.toContain('<span>default</span>')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('resumes ErrorBoundary fallback rendering with outer provider values', async () => {
++    const { createContext, useContext, jsx, ErrorBoundary } = await import('./index')
++    const { renderToReadableStream } = await import('./streaming')
++
++    const deferred = new Promise((_resolve, reject) =>
++      setTimeout(() => reject(new Error('boom')), 10)
++    )
++    const ThemeContext = createContext('default')
++    const Content = () => {
++      throw deferred
++    }
++
++    const html = await drainStream(
++      renderToReadableStream(
++        jsx(
++          ThemeContext.Provider,
++          { value: 'outer' },
++          jsx(
++            ErrorBoundary,
++            {
++              fallbackRender: (error: Error) =>
++                jsx('span', {}, `fallback:${useContext(ThemeContext)}:${error.message}`),
++            },
++            jsx(Content, {})
++          )
++        )
++      )
++    )
++
++    expect(html).toContain('<span>fallback:outer:boom</span>')
++    expect(html).not.toContain('fallback:default')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('resumes ErrorBoundary fallbackRender components with outer provider values', async () => {
++    const { createContext, useContext, jsx, ErrorBoundary } = await import('./index')
++    const { renderToReadableStream } = await import('./streaming')
++
++    const deferred = new Promise((_resolve, reject) =>
++      setTimeout(() => reject(new Error('boom')), 10)
++    )
++    const ThemeContext = createContext('default')
++    const Content = () => {
++      throw deferred
++    }
++    const Fallback = () => jsx('span', {}, `fallback:${useContext(ThemeContext)}`)
++
++    const html = await drainStream(
++      renderToReadableStream(
++        jsx(
++          ThemeContext.Provider,
++          { value: 'outer' },
++          jsx(
++            ErrorBoundary,
++            {
++              fallbackRender: () => jsx(Fallback, {}),
++            },
++            jsx(Content, {})
++          )
++        )
++      )
++    )
++
++    expect(html).toContain('<span>fallback:outer</span>')
++    expect(html).not.toContain('fallback:default')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('resumes ErrorBoundary fallback prop rendering with outer provider values', async () => {
++    const { createContext, useContext, jsx, ErrorBoundary } = await import('./index')
++    const { renderToReadableStream } = await import('./streaming')
++
++    const deferred = new Promise((_resolve, reject) =>
++      setTimeout(() => reject(new Error('boom')), 10)
++    )
++    const ThemeContext = createContext('default')
++    const Content = () => {
++      throw deferred
++    }
++    const Fallback = () => jsx('span', {}, `fallback:${useContext(ThemeContext)}`)
++
++    const html = await drainStream(
++      renderToReadableStream(
++        jsx(
++          ThemeContext.Provider,
++          { value: 'outer' },
++          jsx(ErrorBoundary, { fallback: jsx(Fallback, {}) }, jsx(Content, {}))
++        )
++      )
++    )
++
++    expect(html).toContain('<span>fallback:outer</span>')
++    expect(html).not.toContain('fallback:default')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('resumes thenable ErrorBoundary fallback prop rendering with outer provider values', async () => {
++    const { createContext, useContext, jsx, ErrorBoundary } = await import('./index')
++    const { renderToReadableStream } = await import('./streaming')
++
++    const deferred = new Promise((_resolve, reject) =>
++      setTimeout(() => reject(new Error('boom')), 10)
++    )
++    const ThemeContext = createContext('default')
++    const Content = () => {
++      throw deferred
++    }
++    const Fallback = () => jsx('span', {}, `fallback:${useContext(ThemeContext)}`)
++    const fallback = {
++      then(resolve: (value: unknown) => void) {
++        setTimeout(() => resolve(jsx(Fallback, {})), 0)
++      },
++    }
++
++    const html = await drainStream(
++      renderToReadableStream(
++        jsx(
++          ThemeContext.Provider,
++          { value: 'outer' },
++          jsx(ErrorBoundary, { fallback }, jsx(Content, {}))
++        )
++      )
++    )
++
++    expect(html).toContain('<span>fallback:outer</span>')
++    expect(html).not.toContain('fallback:default')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('resumes synchronous ErrorBoundary fallback rendering with outer provider values', async () => {
++    const { createContext, useContext, jsx, ErrorBoundary } = await import('./index')
++
++    const ThemeContext = createContext('default')
++    const Content = () => {
++      throw new Error('boom')
++    }
++
++    expect(
++      `${await jsx(
++        ThemeContext.Provider,
++        { value: 'outer' },
++        jsx(
++          ErrorBoundary,
++          {
++            fallbackRender: (error: Error) =>
++              jsx('span', {}, `fallback:${useContext(ThemeContext)}:${error.message}`),
++          },
++          jsx(Content, {})
++        )
++      ).toString()}`
++    ).toBe('<span>fallback:outer:boom</span>')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('resumes synchronous ErrorBoundary fallbackRender components with outer provider values', async () => {
++    const { createContext, useContext, jsx, ErrorBoundary } = await import('./index')
++
++    const ThemeContext = createContext('default')
++    const Content = () => {
++      throw new Error('boom')
++    }
++    const Fallback = () => jsx('span', {}, `fallback:${useContext(ThemeContext)}`)
++
++    expect(
++      `${await jsx(
++        ThemeContext.Provider,
++        { value: 'outer' },
++        jsx(
++          ErrorBoundary,
++          {
++            fallbackRender: () => jsx(Fallback, {}),
++          },
++          jsx(Content, {})
++        )
++      ).toString()}`
++    ).toBe('<span>fallback:outer</span>')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++
++  it('resumes synchronous ErrorBoundary fallback prop rendering with outer provider values', async () => {
++    const { createContext, useContext, jsx, ErrorBoundary } = await import('./index')
++
++    const ThemeContext = createContext('default')
++    const Content = () => {
++      throw new Error('boom')
++    }
++    const Fallback = () => jsx('span', {}, `fallback:${useContext(ThemeContext)}`)
++
++    expect(
++      `${await jsx(
++        ThemeContext.Provider,
++        { value: 'outer' },
++        jsx(ErrorBoundary, { fallback: jsx(Fallback, {}) }, jsx(Content, {}))
++      ).toString()}`
++    ).toBe('<span>fallback:outer</span>')
++    expect(warnSpy).not.toHaveBeenCalled()
++  })
++})
+diff --git a/src/jsx/context.ts b/src/jsx/context.ts
+index eed1388c..9e26c3ef 100644
+--- a/src/jsx/context.ts
++++ b/src/jsx/context.ts
+@@ -12,10 +12,211 @@ export interface Context<T> extends FC<PropsWithChildren<{ value: T }>> {
+ 
+ export const globalContexts: Context<unknown>[] = []
+ 
++/** Per-render context store, isolated per request so values never leak across renders. */
++type RenderStore = WeakMap<Context<unknown>, unknown[]>
++
++type AsyncLocalStorageLike<T> = {
++  getStore(): T | undefined
++  run<R>(store: T, callback: () => R): R
++}
++type AsyncLocalStorageClass = new <T>() => AsyncLocalStorageLike<T>
++type AsyncHooksModule = { AsyncLocalStorage?: AsyncLocalStorageClass }
++
++let alsProbed = false
++let asyncLocalStorage: AsyncLocalStorageLike<RenderStore> | undefined
++let fallbackStore: RenderStore | undefined
++// Unsettled async renders on the fallback path. While > 0, a store-less
++// context access is a post-`await` read that degraded to the default value
++// — worth a one-time warning. Stays 0 in the browser DOM renderer.
++let fallbackRendersInFlight = 0
++let warnedFallbackDefault = false
++
++const loadAsyncLocalStorage = (): AsyncLocalStorageLike<RenderStore> | undefined => {
++  if (alsProbed) {
++    return asyncLocalStorage
++  }
++  alsProbed = true
++
++  const global = globalThis as unknown as {
++    process?: {
++      getBuiltinModule?: (specifier: string) => AsyncHooksModule
++      mainModule?: { require?: (specifier: string) => AsyncHooksModule }
++    }
++  }
++  let AsyncLocalStorage: AsyncLocalStorageClass | undefined
++  for (const probe of [
++    // Node.js >= 20.16, Deno, Bun, Cloudflare Workers (nodejs_compat). Property
++    // access only, so bundlers don't statically resolve `node:async_hooks`.
++    () => global.process?.getBuiltinModule?.('node:async_hooks')?.AsyncLocalStorage,
++    // Node.js < 20.16 has no `process.getBuiltinModule`, but a CJS entrypoint
++    // exposes the main module's `require` here.
++    () => global.process?.mainModule?.require?.('node:async_hooks')?.AsyncLocalStorage,
++  ]) {
++    try {
++      AsyncLocalStorage = probe()
++    } catch {}
++    if (AsyncLocalStorage) {
++      break
++    }
++  }
++
++  if (AsyncLocalStorage) {
++    asyncLocalStorage = new AsyncLocalStorage<RenderStore>()
++  }
++  return asyncLocalStorage
++}
++
++const getCurrentStore = (): RenderStore | undefined => {
++  return loadAsyncLocalStorage()?.getStore() || fallbackStore
++}
++
++const warnIfStorelessAccess = (): void => {
++  if (fallbackRendersInFlight > 0 && !warnedFallbackDefault) {
++    warnedFallbackDefault = true
++    console.warn(
++      'hono/jsx: AsyncLocalStorage is unavailable in this runtime, so useContext() after an await in an async component falls back to the context default value during server-side rendering. To get provided values across await boundaries, use a runtime with AsyncLocalStorage (Node.js >= 20.16, Deno, Bun, or Cloudflare Workers with the nodejs_compat flag).'
++    )
++  }
++}
++
++// Write path: materializes the store entry so a Provider's push/pop pair
++// operates on a per-render array.
++const getContextValuesIn = <T>(store: RenderStore | undefined, context: Context<T>): T[] => {
++  if (!store) {
++    warnIfStorelessAccess()
++    return context.values
++  }
++
++  let values = store.get(context as Context<unknown>) as T[] | undefined
++  if (!values) {
++    values = [context.values[0]]
++    store.set(context as Context<unknown>, values)
++  }
++  return values
++}
++
++// Read path: never materializes a store entry — a missing entry always
++// resolves to the default value, so reads stay allocation-free.
++const readContextValueIn = <T>(store: RenderStore | undefined, context: Context<T>): T => {
++  if (!store) {
++    warnIfStorelessAccess()
++    return context.values.at(-1) as T
++  }
++  const values = store.get(context as Context<unknown>) as T[] | undefined
++  return values?.length ? (values.at(-1) as T) : context.values[0]
++}
++
++type LocalContexts = [Context<unknown>, unknown][]
++
++const captureContextValues = (store: RenderStore | undefined): LocalContexts =>
++  (store ? globalContexts.filter((c) => store.has(c)) : globalContexts).map((c) => [
++    c,
++    readContextValueIn(store, c),
++  ])
++
++const resumeWithContextValues = <T>(
++  callback: () => T,
++  store: RenderStore | undefined,
++  contexts: LocalContexts
++): T =>
++  runWithRenderContext(() => {
++    // Resolve each target array once so every pop operates on the same array
++    // as its push, as the Provider in `createContext` does.
++    const currentStore = getCurrentStore()
++    const valuesPerContext = contexts.map(([context, value]) => {
++      const values = getContextValuesIn(currentStore, context)
++      values.push(value)
++      return values
++    })
++    const popContextValues = () => {
++      valuesPerContext.forEach((values) => {
++        values.pop()
++      })
++    }
++    try {
++      const result = callback()
++      if (result instanceof Promise) {
++        return result.finally(popContextValues) as T
++      }
++      popContextValues()
++      return result
++    } catch (e) {
++      popContextValues()
++      throw e
++    }
++  }, store)
++
++/**
++ * Establish the request-scoped context store for a render.
++ *
++ * `resumeStore` continues a suspended subtree in the same store on the fallback
++ * path (ignored when `AsyncLocalStorage` is available, where isolation is
++ * automatic).
++ *
++ * Without `AsyncLocalStorage` a render can't be followed across `await`, so the
++ * store lives in `fallbackStore` only during synchronous work (mirroring
++ * React's request storage). Reading context after `await` then finds no store
++ * and falls back to the default value — never another request's value.
++ */
++export const runWithRenderContext = <T>(callback: () => T, resumeStore?: RenderStore): T => {
++  if (getCurrentStore()) {
++    // Already inside a render (synchronously nested or resumed subtree).
++    return callback()
++  }
++
++  const store = resumeStore ?? new WeakMap()
++  const storage = loadAsyncLocalStorage()
++  if (storage) {
++    // AsyncLocalStorage path: request isolation propagates across `await`.
++    return storage.run(store, callback)
++  }
++
++  // Fallback path (no AsyncLocalStorage).
++  fallbackStore = store
++  let result: T
++  try {
++    result = callback()
++  } finally {
++    fallbackStore = undefined
++  }
++  if (!warnedFallbackDefault && result instanceof Promise) {
++    fallbackRendersInFlight++
++    result = result.finally(() => {
++      fallbackRendersInFlight--
++    }) as T
++  }
++  return result
++}
++
++/**
++ * Capture the current render store and return a resumer that re-establishes it
++ * around a deferred continuation (e.g. a re-render after a suspended promise
++ * settles). Shared by every suspension point so none reimplements it.
++ */
++export const captureRenderContext = (): (<T>(callback: () => T) => T) => {
++  const store = getCurrentStore()
++  const contexts = captureContextValues(store)
++  return (callback) => resumeWithContextValues(callback, store, contexts)
++}
++
++/**
++ * Create a context whose value can be provided with `<Context.Provider>` and
++ * read with {@link useContext}.
++ *
++ * Server-side renders are isolated per request, so a provided value never leaks
++ * into a concurrent request — even across `await` in an async component, when
++ * `AsyncLocalStorage` is available (Node.js >= 20.16, Deno, Bun, Cloudflare
++ * Workers with `nodejs_compat`). Without it, reading context after `await`
++ * returns the default value; synchronous components and `use()`-based
++ * suspension are unaffected.
++ */
+ export const createContext = <T>(defaultValue: T): Context<T> => {
+   const values = [defaultValue]
+   const context: Context<T> = ((props): HtmlEscapedString | Promise<HtmlEscapedString> => {
+-    values.push(props.value)
++    // Resolve the target array once, synchronously: the pop in `.finally()`
++    // below may run later and must operate on the same array as the push.
++    const contextValues = getContextValuesIn(getCurrentStore(), context)
++    contextValues.push(props.value)
+     let string
+     try {
+       string = props.children
+@@ -25,16 +226,16 @@ export const createContext = <T>(defaultValue: T): Context<T> => {
+           ).toString()
+         : ''
+     } catch (e) {
+-      values.pop()
++      contextValues.pop()
+       throw e
+     }
+ 
+     if (string instanceof Promise) {
+       return string
+-        .finally(() => values.pop())
++        .finally(() => contextValues.pop())
+         .then((resString) => raw(resString, (resString as HtmlEscapedString).callbacks))
+     } else {
+-      values.pop()
++      contextValues.pop()
+       return raw(string)
+     }
+   }) as Context<T>
+@@ -49,6 +250,12 @@ export const createContext = <T>(defaultValue: T): Context<T> => {
+   return context
+ }
+ 
++/**
++ * Read the current value of a context created with {@link createContext}.
++ *
++ * Safe to call from async components after `await`. See {@link createContext}
++ * for the per-runtime isolation guarantees.
++ */
+ export const useContext = <T>(context: Context<T>): T => {
+-  return context.values.at(-1) as T
++  return readContextValueIn(getCurrentStore(), context)
+ }
+diff --git a/src/jsx/index.test.tsx b/src/jsx/index.test.tsx
+index 1c8234e1..be19e224 100644
+--- a/src/jsx/index.test.tsx
++++ b/src/jsx/index.test.tsx
+@@ -2,8 +2,10 @@
+ /* eslint-disable @typescript-eslint/no-explicit-any */
+ import { html } from '../helper/html'
+ import { Hono } from '../hono'
++import { captureRenderContext } from './context'
+ import { Suspense, renderToReadableStream } from './streaming'
+ import DefaultExport, {
++  ErrorBoundary,
+   Fragment,
+   StrictMode,
+   createContext,
+@@ -1262,6 +1264,167 @@ d.replaceWith(c.content)
+       const nextRequest = <Consumer />
+       expect(nextRequest.toString()).toBe('<span>light</span>')
+     })
++
++    it('should keep captured context until a resumed async callback settles', async () => {
++      let resolveReader!: () => void
++      const readerWait = new Promise<void>((resolve) => {
++        resolveReader = resolve
++      })
++      let markReaderEntered!: () => void
++      const readerEntered = new Promise<void>((resolve) => {
++        markReaderEntered = resolve
++      })
++
++      const ResumedReader = () => {
++        const resume = captureRenderContext()
++        return resume(async () => {
++          markReaderEntered()
++          await readerWait
++          return useContext(ThemeContext)
++        })
++      }
++
++      const htmlPromise = (
++        <ThemeContext.Provider value='dark'>
++          <ResumedReader />
++        </ThemeContext.Provider>
++      ).toString()
++
++      await readerEntered
++      resolveReader()
++
++      expect(`${await htmlPromise}`).toBe('dark')
++    })
++
++    it('should pop captured context when a resumed callback throws', async () => {
++      const ThrowThenRead = ({ resume }: { resume: ReturnType<typeof captureRenderContext> }) => {
++        try {
++          resume(() => {
++            throw new Error('boom')
++          })
++        } catch {}
++        return useContext(ThemeContext)
++      }
++      const CaptureOuter = () => {
++        const resume = captureRenderContext()
++        return (
++          <ThemeContext.Provider value='inner'>
++            <ThrowThenRead resume={resume} />
++          </ThemeContext.Provider>
++        )
++      }
++
++      expect(
++        `${await (
++          <ThemeContext.Provider value='outer'>
++            <CaptureOuter />
++          </ThemeContext.Provider>
++        ).toString()}`
++      ).toBe('inner')
++    })
++
++    it('should pop captured context when a resumed async callback rejects', async () => {
++      const RejectThenRead = async ({
++        resume,
++      }: {
++        resume: ReturnType<typeof captureRenderContext>
++      }) => {
++        try {
++          await resume(async () => {
++            await Promise.resolve()
++            throw new Error('boom')
++          })
++        } catch {}
++        return useContext(ThemeContext)
++      }
++      const CaptureOuter = () => {
++        const resume = captureRenderContext()
++        return (
++          <ThemeContext.Provider value='inner'>
++            <RejectThenRead resume={resume} />
++          </ThemeContext.Provider>
++        )
++      }
++
++      expect(
++        `${await (
++          <ThemeContext.Provider value='outer'>
++            <CaptureOuter />
++          </ThemeContext.Provider>
++        ).toString()}`
++      ).toBe('inner')
++    })
++
++    it('should isolate async component context between concurrent requests', async () => {
++      const app = new Hono()
++      const SessionContext = createContext({ username: 'guest', role: 'guest' })
++      const waits = new Map<string, Promise<void>>()
++      const entered = new Map<string, () => void>()
++
++      const AdminDashboard = async ({ wait }: { wait: Promise<void> }) => {
++        entered.get(useContext(SessionContext).username)?.()
++        await wait
++        const session = useContext(SessionContext)
++
++        if (session.role !== 'admin') {
++          return <div>Access Denied for {session.username}</div>
++        }
++
++        return <div>Welcome Admin {session.username}. Secret Data: 42</div>
++      }
++
++      app.get('/', (c) => {
++        const session = {
++          username: c.req.query('user') || 'guest',
++          role: c.req.query('role') || 'guest',
++        }
++        const wait = waits.get(session.username) || Promise.resolve()
++
++        return c.html(
++          <SessionContext.Provider value={session}>
++            <AdminDashboard wait={wait} />
++          </SessionContext.Provider>
++        )
++      })
++
++      let resolveAdmin!: () => void
++      let resolveAttacker!: () => void
++      waits.set(
++        'admin',
++        new Promise<void>((resolve) => {
++          resolveAdmin = resolve
++        })
++      )
++      waits.set(
++        'attacker',
++        new Promise<void>((resolve) => {
++          resolveAttacker = resolve
++        })
++      )
++      const adminEntered = new Promise<void>((resolve) => {
++        entered.set('admin', resolve)
++      })
++      const attackerEntered = new Promise<void>((resolve) => {
++        entered.set('attacker', resolve)
++      })
++
++      const adminReq = app.fetch(new Request('http://localhost/?user=admin&role=admin'))
++      const attackerReq = app.fetch(new Request('http://localhost/?user=attacker&role=guest'))
++
++      await Promise.all([adminEntered, attackerEntered])
++      resolveAttacker()
++      await Promise.resolve()
++      resolveAdmin()
++
++      const [adminRes, attackerRes] = await Promise.all([adminReq, attackerReq])
++      const adminHtml = await adminRes.text()
++      const attackerHtml = await attackerRes.text()
++
++      // Each request must render with exactly its own provided value: no
++      // cross-request leak, and no degradation to the context default.
++      expect(adminHtml).toBe('<div>Welcome Admin admin. Secret Data: 42</div>')
++      expect(attackerHtml).toBe('<div>Access Denied for attacker</div>')
++    })
+   })
+ 
+   describe('async with html helper', () => {
+@@ -1303,6 +1466,74 @@ d.replaceWith(c.content)
+   })
+ })
+ 
++describe('ErrorBoundary', () => {
++  it('awaits thenable fallback values', async () => {
++    const Broken = () => {
++      throw new Error('boom')
++    }
++    const fallback = {
++      then(resolve: (value: JSX.Element) => void) {
++        resolve(<span>Recovered</span>)
++      },
++    }
++
++    expect(
++      `${await (
++        <ErrorBoundary fallback={fallback as any}>
++          <Broken />
++        </ErrorBoundary>
++      ).toString()}`
++    ).toBe('<span>Recovered</span>')
++  })
++
++  it('prefers an empty fallback over fallbackRender', async () => {
++    const Broken = () => {
++      throw new Error('boom')
++    }
++    let fallbackRenderCalled = false
++
++    expect(
++      `${await (
++        <ErrorBoundary
++          fallback=''
++          fallbackRender={() => {
++            fallbackRenderCalled = true
++            return <span>fallbackRender</span>
++          }}
++        >
++          <Broken />
++        </ErrorBoundary>
++      ).toString()}`
++    ).toBe('')
++    expect(fallbackRenderCalled).toBe(false)
++  })
++
++  it('renders async rejection fallback with the captured context while streaming', async () => {
++    const ThemeContext = createContext('default')
++    const Fallback = () => <span>{useContext(ThemeContext)}</span>
++    const Broken = async () => {
++      await Promise.resolve()
++      throw new Error('boom')
++    }
++
++    const stream = renderToReadableStream(
++      <ThemeContext.Provider value='outer'>
++        <ErrorBoundary fallbackRender={() => <Fallback />}>
++          <Broken />
++        </ErrorBoundary>
++      </ThemeContext.Provider>
++    )
++    const decoder = new TextDecoder()
++    let html = ''
++    for await (const chunk of stream) {
++      html += decoder.decode(chunk)
++    }
++
++    expect(html).toContain('<span>outer</span>')
++    expect(html).not.toContain('<span>default</span>')
++  })
++})
++
+ describe('version', () => {
+   it('should be defined with semantic versioning format', () => {
+     expect(version).toMatch(/^\d+\.\d+\.\d+-hono-jsx$/)
+diff --git a/src/jsx/streaming.test.tsx b/src/jsx/streaming.test.tsx
+index 75c70cf8..3f07517a 100644
+--- a/src/jsx/streaming.test.tsx
++++ b/src/jsx/streaming.test.tsx
+@@ -4,6 +4,8 @@ import { JSDOM } from 'jsdom'
+ import { raw } from '../helper/html'
+ import { HtmlEscapedCallbackPhase, resolveCallback } from '../utils/html'
+ import type { HtmlEscapedString } from '../utils/html'
++import { createContext, useContext } from './context'
++import { buildDataStack } from './dom/render'
+ import { use } from './hooks'
+ import { Suspense, renderToReadableStream, StreamingContext } from './streaming'
+ 
+@@ -13,6 +15,15 @@ function replacementResult(html: string) {
+   return document.body.innerHTML
+ }
+ 
++async function drainStream(stream: unknown): Promise<string> {
++  const textDecoder = new TextDecoder()
++  let html = ''
++  for await (const chunk of stream as any) {
++    html += textDecoder.decode(chunk)
++  }
++  return html
++}
++
+ describe('Streaming', () => {
+   let suspenseCounter = 0
+   afterEach(() => {
+@@ -638,6 +649,33 @@ d.replaceWith(c.content)
+     )
+   })
+ 
++  it('renders Suspense fallback with outer context values', async () => {
++    const ThemeContext = createContext('default')
++    const Fallback = () => <p>Loading {useContext(ThemeContext)}</p>
++    const Content = () =>
++      new Promise<HtmlEscapedString>((resolve) => setTimeout(() => resolve(<h1>Done</h1>), 10))
++
++    const stream = renderToReadableStream(
++      <ThemeContext.Provider value='outer'>
++        <Suspense fallback={<Fallback />}>
++          <Content />
++        </Suspense>
++      </ThemeContext.Provider>
++    )
++
++    const chunks = []
++    const textDecoder = new TextDecoder()
++    for await (const chunk of stream as any) {
++      chunks.push(textDecoder.decode(chunk))
++    }
++
++    expect(chunks[0]).toBe(
++      `<template id="H:${suspenseCounter}"></template><p>Loading outer</p><!--/$-->`
++    )
++    expect(chunks.join('')).toContain('<h1>Done</h1>')
++    expect(chunks.join('')).not.toContain('default')
++  })
++
+   it('nested Suspense', async () => {
+     const SubContent = () => {
+       const content = new Promise<HtmlEscapedString>((resolve) =>
+@@ -985,4 +1023,95 @@ d.replaceWith(c.content)
+ 
+     process.off('unhandledRejection', onRejection)
+   })
++
++  it('pops buildDataStack when a deferred re-render rejects', async () => {
++    const baseLength = buildDataStack.length
++
++    const deferred = new Promise<string>((resolve) => setTimeout(() => resolve('x'), 10))
++    let first = true
++    const Content = () => {
++      if (first) {
++        // Suspend like use() does so Suspense defers the re-render.
++        first = false
++        throw deferred
++      }
++      throw new Error('boom')
++    }
++
++    const onError = vi.fn(() => '')
++    const stream = renderToReadableStream(
++      <Suspense fallback={<p>Loading</p>}>
++        <Content />
++      </Suspense>,
++      onError
++    )
++    for await (const _ of stream as any) {
++      // drain
++    }
++
++    expect(onError).toHaveBeenCalledTimes(1)
++    // The deferred re-render pushed a stack frame; rejecting must still pop it.
++    expect(buildDataStack.length).toBe(baseLength)
++  })
++
++  it('isolates context between concurrent streaming renders', async () => {
++    // Default value is distinct from both requests so a cross-request leak
++    // (reading the other request's value) would be detectable.
++    const SessionContext = createContext('nobody')
++    const waits = new Map<string, Promise<void>>()
++    const entered = new Map<string, () => void>()
++
++    const Dashboard = async ({ name }: { name: string }) => {
++      // Read context only after suspending, the pattern that previously leaked.
++      entered.get(name)?.()
++      await waits.get(name)
++      return <span>role:{useContext(SessionContext)}</span>
++    }
++
++    const drain = async (value: string) => {
++      return drainStream(
++        renderToReadableStream(
++          <SessionContext.Provider value={value}>
++            <Dashboard name={value} />
++          </SessionContext.Provider>
++        )
++      )
++    }
++
++    let resolveAdmin!: () => void
++    let resolveGuest!: () => void
++    waits.set(
++      'admin',
++      new Promise<void>((resolve) => {
++        resolveAdmin = resolve
++      })
++    )
++    waits.set(
++      'guest',
++      new Promise<void>((resolve) => {
++        resolveGuest = resolve
++      })
++    )
++    const adminEntered = new Promise<void>((resolve) => {
++      entered.set('admin', resolve)
++    })
++    const guestEntered = new Promise<void>((resolve) => {
++      entered.set('guest', resolve)
++    })
++
++    const adminDrain = drain('admin')
++    const guestDrain = drain('guest')
++
++    await Promise.all([adminEntered, guestEntered])
++    resolveGuest()
++    await Promise.resolve()
++    resolveAdmin()
++
++    const [adminHtml, guestHtml] = await Promise.all([adminDrain, guestDrain])
++
++    expect(adminHtml).toContain('role:admin')
++    expect(adminHtml).not.toContain('role:guest')
++    expect(guestHtml).toContain('role:guest')
++    expect(guestHtml).not.toContain('role:admin')
++  })
+ })
+diff --git a/src/jsx/streaming.ts b/src/jsx/streaming.ts
+index e21d40c7..424a01a3 100644
+--- a/src/jsx/streaming.ts
++++ b/src/jsx/streaming.ts
+@@ -9,7 +9,7 @@ import type { HtmlEscapedString } from '../utils/html'
+ import { JSXNode } from './base'
+ import { childrenToString } from './components'
+ import { DOM_RENDERER, DOM_STASH } from './constants'
+-import { createContext, useContext } from './context'
++import { captureRenderContext, createContext, useContext } from './context'
+ import { Suspense as SuspenseDomRenderer } from './dom/components'
+ import { buildDataStack } from './dom/render'
+ import type { HasRenderToDom, NodeObject } from './dom/render'
+@@ -53,9 +53,8 @@ export const Suspense: FC<PropsWithChildren<{ fallback: any }>> = async ({
+ 
+   // for use() hook
+   const stackNode = { [DOM_STASH]: [0, []] } as unknown as NodeObject
+-  const popNodeStack = (value?: unknown) => {
++  const popNodeStack = () => {
+     buildDataStack.pop()
+-    return value
+   }
+ 
+   try {
+@@ -66,12 +65,17 @@ export const Suspense: FC<PropsWithChildren<{ fallback: any }>> = async ({
+     ) as HtmlEscapedString[]
+   } catch (e) {
+     if (e instanceof Promise) {
++      // Capture before deferring: on the fallback path the render context is
++      // observable here but not in the `.then()` below.
++      const resume = captureRenderContext()
+       resArray = [
+-        e.then(() => {
+-          stackNode[DOM_STASH][0] = 0
+-          buildDataStack.push([[], stackNode])
+-          return childrenToString(children as Child[]).then(popNodeStack)
+-        }),
++        e.then(() =>
++          resume(() => {
++            stackNode[DOM_STASH][0] = 0
++            buildDataStack.push([[], stackNode])
++            return childrenToString(children as Child[]).finally(popNodeStack)
++          })
++        ),
+       ] as Promise<HtmlEscapedString[]>[]
+     } else {
+       throw e

@@ -1,0 +1,169 @@
+diff --git a/src/middleware/cache/index.test.ts b/src/middleware/cache/index.test.ts
+index 27d9a8e7..b2552621 100644
+--- a/src/middleware/cache/index.test.ts
++++ b/src/middleware/cache/index.test.ts
+@@ -746,6 +746,25 @@ describe('Cache Skipping Logic', () => {
+     expect(putSpy).not.toHaveBeenCalled()
+   })
+ 
++  it('Should cache request URLs containing a fragment', async () => {
++    const { mockCache } = stubStoreBackedCache()
++    const app = new Hono()
++    let requestCount = 0
++    app.use('*', cache({ cacheName: 'fragment-request-test', wait: true }))
++    app.get('/', (c) => {
++      requestCount++
++      return c.text(c.req.query('name') ?? 'default')
++    })
++
++    expect(await (await app.request('http://localhost/#?name=probe')).text()).toBe('default')
++    expect(await (await app.request('http://localhost/#?name=probe')).text()).toBe('default')
++    expect(requestCount).toBe(1)
++    expect(mockCache.put).toHaveBeenCalledOnce()
++    expect(mockCache.put.mock.calls[0][0]).toBe(
++      'http://localhost/.hono/cache?__hono_cache_key=http%3A%2F%2Flocalhost%2F%23%3Fname%3Dprobe&__hono_cache_method=GET'
++    )
++  })
++
+   it('Should cache QUERY responses without consuming the handler request body', async () => {
+     const { mockCache } = stubStoreBackedCache()
+     const app = new Hono()
+@@ -947,6 +966,37 @@ describe('Cache Skipping Logic', () => {
+     expect(mockCache.put).toHaveBeenCalledTimes(2)
+   })
+ 
++  it('Should preserve fragments in custom cache keys', async () => {
++    const { mockCache } = stubStoreBackedCache()
++    const app = new Hono()
++    let requestCount = 0
++    app.use(
++      '/report',
++      cache({
++        cacheName: 'custom-fragment-key-test',
++        wait: true,
++        keyGenerator: (c) => `${c.req.path}#${c.req.header('X-Tenant-Id')}`,
++      })
++    )
++    app.get('/report', (c) => {
++      requestCount++
++      return c.text(`report for ${c.req.header('X-Tenant-Id')}`)
++    })
++
++    const request = (tenant: string) =>
++      app.request('/report', { headers: { 'X-Tenant-Id': tenant } })
++
++    expect(await (await request('acme')).text()).toBe('report for acme')
++    expect(await (await request('globex')).text()).toBe('report for globex')
++    expect(await (await request('acme')).text()).toBe('report for acme')
++    expect(requestCount).toBe(2)
++    expect(mockCache.put).toHaveBeenCalledTimes(2)
++    expect(mockCache.put.mock.calls.map(([key]) => key)).toEqual([
++      'http://localhost/.hono/cache?__hono_cache_key=%2Freport%23acme&__hono_cache_method=GET',
++      'http://localhost/.hono/cache?__hono_cache_key=%2Freport%23globex&__hono_cache_method=GET',
++    ])
++  })
++
+   it('Should keep QUERY digest and vary values with a fragmented custom cache key', async () => {
+     const { mockCache } = stubStoreBackedCache()
+     const app = new Hono()
+diff --git a/src/middleware/cache/index.ts b/src/middleware/cache/index.ts
+index 1c6c6408..5cd52409 100644
+--- a/src/middleware/cache/index.ts
++++ b/src/middleware/cache/index.ts
+@@ -55,7 +55,7 @@ const createCacheKey = (
+   varyHeaders: [string, string][]
+ ): string => {
+   const url = new URL(cacheKeyPath, requestUrl)
+-  url.searchParams.append(cacheKeyParameter, key.split('#', 1)[0])
++  url.searchParams.append(cacheKeyParameter, key)
+   url.searchParams.append(cacheMethodKeyParameter, request.method)
+ 
+   if (request.method === 'QUERY') {
+diff --git a/src/utils/url.test.ts b/src/utils/url.test.ts
+index 2fcd70d7..f34daae6 100644
+--- a/src/utils/url.test.ts
++++ b/src/utils/url.test.ts
+@@ -181,9 +181,12 @@ describe('url', () => {
+       expect(qs).toBe('?')
+       qs = getQueryStrings('https://example.com/hello')
+       expect(qs).toBe('')
+-      // Allows to contain hash
+       qs = getQueryStrings('https://example.com/hello?name=foo&name=bar&age=20#hash')
+-      expect(qs).toBe('?name=foo&name=bar&age=20#hash')
++      expect(qs).toBe('?name=foo&name=bar&age=20')
++      qs = getQueryStrings('https://example.com/hello#?name=probe')
++      expect(qs).toBe('')
++      qs = getQueryStrings('https://example.com/hello?name=foo%23bar#hash')
++      expect(qs).toBe('?name=foo%23bar')
+     })
+   })
+ 
+@@ -260,7 +263,12 @@ describe('url', () => {
+   describe('getQueryParam', () => {
+     it('Parse URL query strings', () => {
+       expect(getQueryParam('http://example.com/?name=hey', 'name')).toBe('hey')
+-      expect(getQueryParam('http://example.com/?name=hey#fragment', 'name')).toBe('hey#fragment')
++      expect(getQueryParam('http://example.com/?name=hey#fragment', 'name')).toBe('hey')
++      expect(getQueryParam('http://example.com/#?name=probe', 'name')).toBe(undefined)
++      expect(getQueryParam('http://example.com/?name=hey%23there#fragment', 'name')).toBe(
++        'hey#there'
++      )
++      expect(getQueryParam('http://example.com/?safe=1#&admin=true')).toEqual({ safe: '1' })
+       expect(getQueryParam('http://example.com/?name=hey&age=20&tall=170', 'age')).toBe('20')
+       expect(getQueryParam('http://example.com/?Hono+is=a+web+framework', 'Hono is')).toBe(
+         'a web framework'
+@@ -308,9 +316,12 @@ describe('url', () => {
+   describe('getQueryParams', () => {
+     it('Parse URL query strings', () => {
+       expect(getQueryParams('http://example.com/?name=hey', 'name')).toEqual(['hey'])
+-      expect(getQueryParams('http://example.com/?name=hey#fragment', 'name')).toEqual([
+-        'hey#fragment',
++      expect(getQueryParams('http://example.com/?name=hey#fragment', 'name')).toEqual(['hey'])
++      expect(getQueryParams('http://example.com/#?name=probe', 'name')).toBe(undefined)
++      expect(getQueryParams('http://example.com/?name=hey%23there#fragment', 'name')).toEqual([
++        'hey#there',
+       ])
++      expect(getQueryParams('http://example.com/?safe=1#&admin=true')).toEqual({ safe: ['1'] })
+       expect(getQueryParams('http://example.com/?name=hey&name=foo', 'name')).toEqual([
+         'hey',
+         'foo',
+diff --git a/src/utils/url.ts b/src/utils/url.ts
+index 12493648..20138373 100644
+--- a/src/utils/url.ts
++++ b/src/utils/url.ts
+@@ -133,9 +133,22 @@ export const getPath = (request: Request): string => {
+   return url.slice(start, i)
+ }
+ 
++/**
++ * @deprecated
++ * Use the `URL` API instead.
++ */
+ export const getQueryStrings = (url: string): string => {
+   const queryIndex = url.indexOf('?', 8)
+-  return queryIndex === -1 ? '' : '?' + url.slice(queryIndex + 1)
++  if (queryIndex === -1) {
++    return ''
++  }
++
++  const hashIndex = url.indexOf('#', 8)
++  return hashIndex === -1
++    ? url.slice(queryIndex)
++    : queryIndex < hashIndex
++      ? url.slice(queryIndex, hashIndex)
++      : ''
+ }
+ 
+ export const getPathNoStrict = (request: Request): string => {
+@@ -221,6 +234,11 @@ const _getQueryParam = (
+   key?: string,
+   multiple?: boolean
+ ): string | undefined | Record<string, string> | string[] | Record<string, string[]> => {
++  const hashIndex = url.indexOf('#', 8)
++  if (hashIndex !== -1) {
++    url = url.slice(0, hashIndex)
++  }
++
+   let encoded
+ 
+   if (!multiple && key && key.indexOf('%') === -1 && key.indexOf('+') === -1) {

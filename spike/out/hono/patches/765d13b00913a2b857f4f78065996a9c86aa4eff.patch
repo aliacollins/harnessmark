@@ -1,0 +1,61 @@
+diff --git a/src/jsx/intrinsic-element/components.test.tsx b/src/jsx/intrinsic-element/components.test.tsx
+index 896c9add..bfb0a7ec 100644
+--- a/src/jsx/intrinsic-element/components.test.tsx
++++ b/src/jsx/intrinsic-element/components.test.tsx
+@@ -36,6 +36,43 @@ describe('intrinsic element', () => {
+           '<html><head><title>Hello</title></head><body><h1>World</h1></body></html>'
+         )
+       })
++
++      it('should hoist a title with async children', async () => {
++        const AsyncChild = async () => <>{'Hello'}</>
++        const template = (
++          <html>
++            <head></head>
++            <body>
++              <title>
++                <AsyncChild />
++              </title>
++              <h1>World</h1>
++            </body>
++          </html>
++        )
++        const rendered = await template.toString()
++        expect(await resolveCallback(rendered, HtmlEscapedCallbackPhase.Stringify, false, {})).toBe(
++          '<html><head><title>Hello</title></head><body><h1>World</h1></body></html>'
++        )
++      })
++
++      it('should render a title with async children without a head element', async () => {
++        const AsyncChild = async () => <>{'Hello'}</>
++        const template = (
++          <html>
++            <body>
++              <title>
++                <AsyncChild />
++              </title>
++              <h1>World</h1>
++            </body>
++          </html>
++        )
++        const rendered = await template.toString()
++        const html = await resolveCallback(rendered, HtmlEscapedCallbackPhase.Stringify, false, {})
++        expect(html.toString()).toBe('<html><body><title>Hello</title><h1>World</h1></body></html>')
++        expect(html.toString()).not.toContain('[object Promise]')
++      })
+     })
+ 
+     describe('link element', () => {
+diff --git a/src/jsx/intrinsic-element/components.ts b/src/jsx/intrinsic-element/components.ts
+index 7629e0a9..b3866d6c 100644
+--- a/src/jsx/intrinsic-element/components.ts
++++ b/src/jsx/intrinsic-element/components.ts
+@@ -108,7 +108,7 @@ const documentMetadataTag = (tag: string, children: Child, props: Props, sort: b
+ 
+   if (string instanceof Promise) {
+     return string.then((resString) =>
+-      raw(string, [
++      raw(resString, [
+         ...((resString as HtmlEscapedString).callbacks || []),
+         insertIntoHead(tag, resString, restProps, precedence),
+       ])

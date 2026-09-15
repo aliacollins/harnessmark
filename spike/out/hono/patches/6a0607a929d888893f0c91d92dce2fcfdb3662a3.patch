@@ -1,0 +1,67 @@
+diff --git a/src/middleware/serve-static/index.test.ts b/src/middleware/serve-static/index.test.ts
+index d822eca3..000a82f6 100644
+--- a/src/middleware/serve-static/index.test.ts
++++ b/src/middleware/serve-static/index.test.ts
+@@ -267,5 +267,28 @@ describe('Serve Static Middleware', () => {
+       const res = await app.request('///etc/passwd')
+       expect(await res.text()).toBe('Hello in etc/passwd')
+     })
++
++    it('Should not allow bypass via path mismatch between middleware and serveStatic', async () => {
++      const app = new Hono()
++
++      app.use('/admin/*', async (c, next) => {
++        c.header('X-Authorized', 'true')
++        await next()
++      })
++
++      const serveStatic = baseServeStatic({
++        getContent,
++        root: '.',
++      })
++      app.use('/*', serveStatic)
++
++      const res = await app.request('/admin/secret.txt')
++      expect(res.headers.get('X-Authorized')).toBe('true')
++      expect(await res.text()).toBe('Hello in admin/secret.txt')
++
++      const res2 = await app.request('/admin%2Fsecret.txt')
++      expect(res2.headers.get('X-Authorized')).toBeNull()
++      expect(await res2.text()).toBe('Hello in admin%2Fsecret.txt')
++    })
+   })
+ })
+diff --git a/src/middleware/serve-static/index.ts b/src/middleware/serve-static/index.ts
+index ec516cf1..f2c6cba0 100644
+--- a/src/middleware/serve-static/index.ts
++++ b/src/middleware/serve-static/index.ts
+@@ -7,6 +7,7 @@ import type { Context, Data } from '../../context'
+ import type { Env, MiddlewareHandler } from '../../types'
+ import { COMPRESSIBLE_CONTENT_TYPE_REGEX } from '../../utils/compress'
+ import { getMimeType } from '../../utils/mime'
++import { tryDecodeURI } from '../../utils/url'
+ import { defaultJoin } from './path'
+ 
+ export type ServeStaticOptions<E extends Env = Env> = {
+@@ -62,7 +63,7 @@ export const serveStatic = <E extends Env = Env>(
+       filename = options.path
+     } else {
+       try {
+-        filename = decodeURIComponent(c.req.path)
++        filename = tryDecodeURI(c.req.path)
+         if (/(?:^|[\/\\])\.\.(?:$|[\/\\])/.test(filename)) {
+           throw new Error()
+         }
+diff --git a/src/utils/url.ts b/src/utils/url.ts
+index 6f39eaed..56151658 100644
+--- a/src/utils/url.ts
++++ b/src/utils/url.ts
+@@ -101,7 +101,7 @@ export const tryDecode = (str: string, decoder: Decoder): string => {
+  * tryDecodeURI('Hello%20World') // 'Hello World'
+  * tryDecodeURI('Hello%20World/%A4%A2') // 'Hello World/%A4%A2'
+  */
+-const tryDecodeURI = (str: string) => tryDecode(str, decodeURI)
++export const tryDecodeURI = (str: string) => tryDecode(str, decodeURI)
+ 
+ export const getPath = (request: Request): string => {
+   const url = request.url

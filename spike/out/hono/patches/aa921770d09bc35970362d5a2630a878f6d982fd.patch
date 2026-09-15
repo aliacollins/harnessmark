@@ -1,0 +1,116 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index d7d76ef9..2ff5a40e 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -266,6 +266,23 @@ describe('EventProcessor.createRequest', () => {
+     })
+   })
+ 
++  it('Should preserve every repeated header value for version 1.0 API Gateway event', () => {
++    const event: LambdaEvent = {
++      ...baseV1Event,
++      headers: {
++        'x-forwarded-for': '203.0.113.10',
++      },
++      multiValueHeaders: {
++        'x-forwarded-for': ['203.0.113.1', '203.0.113.10'],
++      },
++    }
++
++    const processor = getProcessor(event)
++    const request = processor.createRequest(event)
++
++    expect(request.headers.get('x-forwarded-for')).toEqual('203.0.113.1, 203.0.113.10')
++  })
++
+   it('Should return valid Request object from version 2.0 API Gateway event', () => {
+     const event: LambdaEvent = {
+       ...baseV2Event,
+@@ -353,6 +370,34 @@ describe('EventProcessor.createRequest', () => {
+     })
+   })
+ 
++  it('Should preserve every repeated header value for Lattice event', async () => {
++    const event: LatticeProxyEventV2 = {
++      version: '2.0',
++      path: '/my/path',
++      method: 'GET',
++      headers: {
++        host: ['example.test'],
++        'x-forwarded-for': ['203.0.113.1', '203.0.113.10'],
++      },
++      queryStringParameters: {},
++      body: null,
++      isBase64Encoded: false,
++      requestContext: {
++        serviceNetworkArn: '',
++        serviceArn: '',
++        targetGroupArn: '',
++        identity: {},
++        region: 'us-east-1',
++        timeEpoch: '1583348638390123',
++      },
++    }
++
++    const processor = getProcessor(event)
++    const request = processor.createRequest(event)
++
++    expect(request.headers.get('x-forwarded-for')).toEqual('203.0.113.1, 203.0.113.10')
++  })
++
+   describe('non-ASCII header value processing', () => {
+     it('Should encode non-ASCII header values with encodeURIComponent', async () => {
+       const event: LambdaEvent = {
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 4abb62bc..5259d8f9 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -474,24 +474,17 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+   protected getHeaders(event: APIGatewayProxyEvent): Headers {
+     const headers = new Headers()
+     this.getCookies(event, headers)
+-    if (event.headers) {
+-      for (const [k, v] of Object.entries(event.headers)) {
+-        if (v) {
+-          headers.set(k, sanitizeHeaderValue(v))
+-        }
+-      }
+-    }
+     if (event.multiValueHeaders) {
+       for (const [k, values] of Object.entries(event.multiValueHeaders)) {
+         if (values) {
+-          // avoid duplicating already set headers
+-          const foundK = headers.get(k)
+-          values.forEach((v) => {
+-            const sanitizedValue = sanitizeHeaderValue(v)
+-            return (
+-              (!foundK || !foundK.includes(sanitizedValue)) && headers.append(k, sanitizedValue)
+-            )
+-          })
++          values.forEach((v) => headers.append(k, sanitizeHeaderValue(v)))
++        }
++      }
++    }
++    if (event.headers) {
++      for (const [k, v] of Object.entries(event.headers)) {
++        if (v && !headers.has(k)) {
++          headers.set(k, sanitizeHeaderValue(v))
+         }
+       }
+     }
+@@ -607,14 +600,7 @@ export class LatticeV2Processor extends EventProcessor<LatticeProxyEventV2> {
+     if (event.headers) {
+       for (const [k, values] of Object.entries(event.headers)) {
+         if (values) {
+-          // avoid duplicating already set headers
+-          const foundK = headers.get(k)
+-          values.forEach((v) => {
+-            const sanitizedValue = sanitizeHeaderValue(v)
+-            return (
+-              (!foundK || !foundK.includes(sanitizedValue)) && headers.append(k, sanitizedValue)
+-            )
+-          })
++          values.forEach((v) => headers.append(k, sanitizeHeaderValue(v)))
+         }
+       }
+     }

@@ -1,0 +1,44 @@
+diff --git a/src/middleware/compress/index.test.ts b/src/middleware/compress/index.test.ts
+index a020ec2b..806aceca 100644
+--- a/src/middleware/compress/index.test.ts
++++ b/src/middleware/compress/index.test.ts
+@@ -58,6 +58,12 @@ describe('Compress Middleware', () => {
+     c.header('Content-Length', '1024')
+     return c.body(new Uint8Array(1024)) // Simulated chunked data
+   })
++  app.get('/partial', (c) => {
++    c.header('Content-Type', 'text/plain')
++    c.header('Content-Length', '1024')
++    c.header('Content-Range', 'bytes 0-1023/2048')
++    return c.body('a'.repeat(1024), 206)
++  })
+   app.get('/stream', (c) =>
+     stream(c, async (stream) => {
+       c.header('Content-Type', 'text/plain')
+@@ -157,6 +163,14 @@ describe('Compress Middleware', () => {
+       expect(res.headers.get('Content-Length')).toBe('1024')
+       expect(res.headers.get('Transfer-Encoding')).toBe('chunked')
+     })
++
++    it('should not compress 206 Partial Content responses', async () => {
++      const res = await testCompression('/partial', 'gzip', null)
++      expect(res.status).toBe(206)
++      expect(res.headers.get('Content-Length')).toBe('1024')
++      expect(res.headers.get('Content-Range')).toBe('bytes 0-1023/2048')
++      expect(await res.text()).toBe('a'.repeat(1024))
++    })
+   })
+ 
+   describe('JSON Handling', () => {
+diff --git a/src/middleware/compress/index.ts b/src/middleware/compress/index.ts
+index 8f25bb81..028e97d8 100644
+--- a/src/middleware/compress/index.ts
++++ b/src/middleware/compress/index.ts
+@@ -90,6 +90,7 @@ export const compress = (options?: CompressionOptions): MiddlewareHandler => {
+ 
+     // Check if response should be compressed
+     if (
++      ctx.res.status === 206 || // partial content, Content-Range refers to the uncompressed bytes
+       ctx.res.headers.has('Content-Encoding') || // already encoded
+       ctx.res.headers.has('Transfer-Encoding') || // already encoded or chunked
+       ctx.req.method === 'HEAD' || // HEAD request

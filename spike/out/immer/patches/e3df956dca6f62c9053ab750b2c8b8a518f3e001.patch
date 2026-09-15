@@ -1,0 +1,53 @@
+diff --git a/__tests__/base.js b/__tests__/base.js
+index c293eef..51a7a29 100644
+--- a/__tests__/base.js
++++ b/__tests__/base.js
+@@ -423,6 +423,23 @@ function runBaseTest(
+ 							expect(newLength).toBe(4)
+ 						})
+ 					})
++
++					test("push onto an index freed by pop() is patched", () => {
++						const base = {items: ["a", "b", "c"]}
++						const [result, patches, inverse] = produceWithPatches(
++							base,
++							draft => {
++								draft.items.pop()
++								draft.items.push("z")
++							}
++						)
++						expect(result.items).toEqual(["a", "b", "z"])
++						expect(patches).toEqual([
++							{op: "replace", path: ["items", 2], value: "z"}
++						])
++						expect(applyPatches(base, patches)).toEqual(result)
++						expect(applyPatches(result, inverse)).toEqual(base)
++					})
+ 				})
+ 
+ 				describe("unshift()", () => {
+diff --git a/src/plugins/arrayMethods.ts b/src/plugins/arrayMethods.ts
+index a4d3d01..4c11fc3 100644
+--- a/src/plugins/arrayMethods.ts
++++ b/src/plugins/arrayMethods.ts
+@@ -202,6 +202,11 @@ export function enableArrayMethods() {
+ 	 * Without this, values containing draft proxies (like `{...state[0]}`)
+ 	 * pushed via the array methods plugin would have their nested drafts
+ 	 * revoked during finalization without being replaced by final values.
++	 *
++	 * The index is stringified because the proxy traps only ever see property
++	 * names, so `assigned_` is keyed by string everywhere else. A numeric key
++	 * would be invisible to the readers that look indices up by name, such as
++	 * patch generation.
+ 	 */
+ 	function handleInsertedValues(
+ 		state: ProxyArrayState,
+@@ -209,7 +214,7 @@ export function enableArrayMethods() {
+ 		values: any[]
+ 	) {
+ 		for (let i = 0; i < values.length; i++) {
+-			const index = startIndex + i
++			const index = "" + (startIndex + i)
+ 			state.assigned_!.set(index, true)
+ 			handleCrossReference(state, index, values[i])
+ 		}

@@ -1,0 +1,447 @@
+diff --git a/src/jsx/base.ts b/src/jsx/base.ts
+index acd4df08..0a0be361 100644
+--- a/src/jsx/base.ts
++++ b/src/jsx/base.ts
+@@ -10,7 +10,7 @@ import type {
+   JSX as HonoJSX,
+   IntrinsicElements as IntrinsicElementsDefined,
+ } from './intrinsic-elements'
+-import { normalizeIntrinsicElementKey, styleObjectForEach } from './utils'
++import { isValidAttributeName, normalizeIntrinsicElementKey, styleObjectForEach } from './utils'
+ 
+ // eslint-disable-next-line @typescript-eslint/no-explicit-any
+ export type Props = Record<string, any>
+@@ -182,6 +182,9 @@ export class JSXNode implements HtmlEscaped {
+         : (key) => normalizeIntrinsicElementKey(key)
+     for (let [key, v] of Object.entries(props)) {
+       key = normalizeKey(key)
++      if (!isValidAttributeName(key)) {
++        continue
++      }
+       if (key === 'children') {
+         // skip children
+       } else if (key === 'style' && typeof v === 'object') {
+diff --git a/src/jsx/dom/index.test.tsx b/src/jsx/dom/index.test.tsx
+index 23ef5d5c..4ceb0de5 100644
+--- a/src/jsx/dom/index.test.tsx
++++ b/src/jsx/dom/index.test.tsx
+@@ -96,6 +96,7 @@ describe('DOM', () => {
+     global.HTMLElement = dom.window.HTMLElement
+     global.SVGElement = dom.window.SVGElement
+     global.Text = dom.window.Text
++    global.DOMException = dom.window.DOMException
+     root = document.getElementById('root') as HTMLElement
+   })
+ 
+@@ -194,6 +195,69 @@ describe('DOM', () => {
+       expect(root.innerHTML).toBe('<div x-value="value"></div>')
+     })
+ 
++    it('ignores invalid attribute keys without interrupting updates', async () => {
++      const invalidKey = '" onfocus="alert(1)'
++
++      const App = () => {
++        const [includeInvalid, setIncludeInvalid] = useState(true)
++        return includeInvalid ? (
++          <div id='safe' {...{ [invalidKey]: 'x' }} onClick={() => setIncludeInvalid(false)}>
++            Hello
++          </div>
++        ) : (
++          <div class='updated'>Hello</div>
++        )
++      }
++
++      render(<App />, root)
++      expect(root.innerHTML).toBe('<div id="safe">Hello</div>')
++
++      root.querySelector('div')?.click()
++      await Promise.resolve()
++
++      expect(root.innerHTML).toBe('<div class="updated">Hello</div>')
++    })
++
++    it('rethrows unexpected errors while setting attributes', () => {
++      const error = new Error('boom')
++      const originalSetAttribute = dom.window.Element.prototype.setAttribute
++      const setAttributeSpy = vi
++        .spyOn(dom.window.Element.prototype, 'setAttribute')
++        .mockImplementation(function (this: Element, key: string, value: string) {
++          if (key === 'data-boom') {
++            throw error
++          }
++          return originalSetAttribute.call(this, key, value)
++        })
++
++      try {
++        expect(() => render(<div data-boom='x'>Hello</div>, root)).toThrow(error)
++      } finally {
++        setAttributeSpy.mockRestore()
++      }
++    })
++
++    it('rethrows unexpected errors while removing attributes', () => {
++      render(<div data-boom='x'>Hello</div>, root)
++
++      const error = new Error('boom')
++      const originalRemoveAttribute = dom.window.Element.prototype.removeAttribute
++      const removeAttributeSpy = vi
++        .spyOn(dom.window.Element.prototype, 'removeAttribute')
++        .mockImplementation(function (this: Element, key: string) {
++          if (key === 'data-boom') {
++            throw error
++          }
++          return originalRemoveAttribute.call(this, key)
++        })
++
++      try {
++        expect(() => render(<div data-boom={undefined}>Hello</div>, root)).toThrow(error)
++      } finally {
++        removeAttributeSpy.mockRestore()
++      }
++    })
++
+     it('ref', () => {
+       const App = () => {
+         const ref = useRef<HTMLDivElement>(null)
+@@ -2582,6 +2646,18 @@ describe('DOM', () => {
+       expect(document.querySelector('svg title')).toBeInstanceOf(dom.window.SVGTitleElement)
+     })
+ 
++    it('skips invalid attribute keys in SVG while preserving valid ones', () => {
++      const App = () => {
++        return (
++          <svg>
++            <g {...{ ['" onload="alert(1)']: 'x', viewBox: '0 0 10 10' }} />
++          </svg>
++        )
++      }
++      render(<App />, root)
++      expect(root.innerHTML).toBe('<svg><g viewBox="0 0 10 10"></g></svg>')
++    })
++
+     describe('attribute', () => {
+       describe('camelCase', () => {
+         test.each`
+diff --git a/src/jsx/dom/render.ts b/src/jsx/dom/render.ts
+index 6a8c7bad..c9e5f9ba 100644
+--- a/src/jsx/dom/render.ts
++++ b/src/jsx/dom/render.ts
+@@ -155,6 +155,12 @@ const applySelectValue = (select: HTMLSelectElement, props: Props): void => {
+   }
+ }
+ 
++// Unlike SSR (which uses isValidAttributeName for upfront validation),
++// the DOM renderer relies on try/catch for performance—invalid attribute
++// names are rare at runtime, so avoiding the per-attribute regex check is faster.
++const isIgnorableAttributeError = (error: unknown): boolean =>
++  error instanceof DOMException && error.name === 'InvalidCharacterError'
++
+ const applyProps = (
+   container: SupportedElement,
+   attributes: Props,
+@@ -223,14 +229,20 @@ const applyProps = (
+ 
+         const k = toAttributeName(container, key)
+ 
+-        if (value === null || value === undefined || value === false) {
+-          container.removeAttribute(k)
+-        } else if (value === true) {
+-          container.setAttribute(k, '')
+-        } else if (typeof value === 'string' || typeof value === 'number') {
+-          container.setAttribute(k, value as string)
+-        } else {
+-          container.setAttribute(k, value.toString())
++        try {
++          if (value === null || value === undefined || value === false) {
++            container.removeAttribute(k)
++          } else if (value === true) {
++            container.setAttribute(k, '')
++          } else if (typeof value === 'string' || typeof value === 'number') {
++            container.setAttribute(k, value as string)
++          } else {
++            container.setAttribute(k, value.toString())
++          }
++        } catch (e) {
++          if (!isIgnorableAttributeError(e)) {
++            throw e
++          }
+         }
+       }
+     }
+@@ -246,7 +258,13 @@ const applyProps = (
+         } else if (key === 'ref') {
+           refCleanupMap.get(container)?.()
+         } else {
+-          container.removeAttribute(toAttributeName(container, key))
++          try {
++            container.removeAttribute(toAttributeName(container, key))
++          } catch (e) {
++            if (!isIgnorableAttributeError(e)) {
++              throw e
++            }
++          }
+         }
+       }
+     }
+diff --git a/src/jsx/index.test.tsx b/src/jsx/index.test.tsx
+index a830cd18..eebff187 100644
+--- a/src/jsx/index.test.tsx
++++ b/src/jsx/index.test.tsx
+@@ -478,6 +478,76 @@ describe('render to string', () => {
+     })
+   })
+ 
++  describe('XSS prevention for attribute keys', () => {
++    it('Should skip attribute keys containing double quotes', () => {
++      const props: Record<string, string> = { ['" onfocus="alert(1)']: 'x' }
++      const template = <div {...props}>Hello</div>
++      expect(template.toString()).toBe('<div>Hello</div>')
++    })
++
++    it('Should skip attribute keys containing >', () => {
++      const props: Record<string, string> = { ['"><script>alert(1)</script><x x="']: 'x' }
++      const template = <div {...props}>Hello</div>
++      expect(template.toString()).toBe('<div>Hello</div>')
++    })
++
++    it('Should skip attribute keys containing <', () => {
++      const props: Record<string, string> = { ['foo<bar']: 'x' }
++      const template = <div {...props}>Hello</div>
++      expect(template.toString()).toBe('<div>Hello</div>')
++    })
++
++    it('Should skip attribute keys containing backslashes', () => {
++      const props: Record<string, string> = { ['foo\\bar']: 'x' }
++      const template = <div {...props}>Hello</div>
++      expect(template.toString()).toBe('<div>Hello</div>')
++    })
++
++    it('Should skip attribute keys containing backticks', () => {
++      const props: Record<string, string> = { ['foo`bar']: 'x' }
++      const template = <div {...props}>Hello</div>
++      expect(template.toString()).toBe('<div>Hello</div>')
++    })
++
++    it('Should skip attribute keys containing spaces', () => {
++      const props: Record<string, string> = { ['foo bar']: 'x' }
++      const template = <div {...props}>Hello</div>
++      expect(template.toString()).toBe('<div>Hello</div>')
++    })
++
++    it('Should still render valid attributes alongside invalid ones', () => {
++      const props: Record<string, string> = {
++        id: 'safe',
++        ['" onfocus="alert(1)']: 'x',
++        class: 'test',
++      }
++      const template = <div {...props}>Hello</div>
++      expect(template.toString()).toBe('<div id="safe" class="test">Hello</div>')
++    })
++
++    it('Should skip invalid attribute keys before style serialization', () => {
++      const template = <div {...{ ['" onfocus="alert(1)']: { fontSize: 10 } }}>Hello</div>
++      expect(template.toString()).toBe('<div>Hello</div>')
++    })
++
++    it('Should skip invalid attribute keys before function prop validation', () => {
++      const template = <div {...{ ['" onfocus="alert(1)']: () => 'x' }}>Hello</div>
++      expect(template.toString()).toBe('<div>Hello</div>')
++    })
++
++    it('Should skip invalid attribute keys before dangerouslySetInnerHTML handling', () => {
++      const template = (
++        <div {...{ ['" onfocus="alert(1)']: { __html: '<strong>Injected</strong>' } }}>Hello</div>
++      )
++      expect(template.toString()).toBe('<div>Hello</div>')
++    })
++
++    it('Should skip invalid attribute keys with Promise values', async () => {
++      const template = <div {...{ ['" onfocus="alert(1)']: Promise.resolve('x') }}>Hello</div>
++      expect(await template.toString()).toBe('<div>Hello</div>')
++    })
++  })
++
+   describe('head', () => {
+     it('Simple head elements should be rendered as is', () => {
+       const template = (
+@@ -667,6 +737,15 @@ describe('SVG', () => {
+     )
+   })
+ 
++  it('should skip invalid attribute keys in SVG while preserving valid ones', () => {
++    const template = (
++      <svg>
++        <g {...{ ['" onload="alert(1)']: 'x', viewBox: '0 0 10 10' }} />
++      </svg>
++    )
++    expect(template.toString()).toBe('<svg><g viewBox="0 0 10 10"></g></svg>')
++  })
++
+   describe('attribute', () => {
+     describe('camelCase', () => {
+       test.each`
+diff --git a/src/jsx/jsx-runtime.test.tsx b/src/jsx/jsx-runtime.test.tsx
+index a7ba4af4..bd63bdb6 100644
+--- a/src/jsx/jsx-runtime.test.tsx
++++ b/src/jsx/jsx-runtime.test.tsx
+@@ -1,6 +1,7 @@
+ /** @jsxRuntime automatic **/
+ /** @jsxImportSource . **/
+ import { Hono } from '../hono'
++import { jsxAttr } from './jsx-runtime'
+ 
+ describe('jsx-runtime', () => {
+   let app: Hono
+@@ -19,6 +20,29 @@ describe('jsx-runtime', () => {
+     expect(await res.text()).toBe('<h1>Hello</h1>')
+   })
+ 
++  it('Should skip invalid attribute keys in jsxAttr()', () => {
++    expect(String(jsxAttr('" onfocus="alert(1)', 'x'))).toBe('')
++    expect(String(jsxAttr('foo<bar', 'x'))).toBe('')
++    expect(String(jsxAttr('foo\\bar', 'x'))).toBe('')
++    expect(String(jsxAttr('foo`bar', 'x'))).toBe('')
++  })
++
++  it('Should skip invalid non-string attribute values in jsxAttr()', async () => {
++    const invalidKey = '" onfocus="alert(1)'
++
++    expect(String(jsxAttr(invalidKey, { fontSize: 10 }))).toBe('')
++    expect(String(await jsxAttr(invalidKey, Promise.resolve('/docs?q=1&lang=en')))).toBe('')
++  })
++
++  it('Should render valid attribute values in jsxAttr()', async () => {
++    expect(String(jsxAttr('style', { fontSize: 10, color: 'red' }))).toBe(
++      'style="font-size:10px;color:red"'
++    )
++    expect(String(await jsxAttr('href', Promise.resolve('/docs?q=1&lang=en')))).toBe(
++      'href="/docs?q=1&amp;lang=en"'
++    )
++  })
++
+   // https://en.reactjs.org/docs/jsx-in-depth.html#booleans-null-and-undefined-are-ignored
+   describe('Booleans, Null, and Undefined Are Ignored', () => {
+     it.each([true, false, undefined, null])('%s', (item) => {
+diff --git a/src/jsx/jsx-runtime.ts b/src/jsx/jsx-runtime.ts
+index 77da8f61..6268fa48 100644
+--- a/src/jsx/jsx-runtime.ts
++++ b/src/jsx/jsx-runtime.ts
+@@ -9,7 +9,7 @@ export type { JSX } from './jsx-dev-runtime'
+ import { html, raw } from '../helper/html'
+ import type { HtmlEscapedString, StringBuffer, HtmlEscaped } from '../utils/html'
+ import { escapeToBuffer, stringBufferToString } from '../utils/html'
+-import { styleObjectForEach } from './utils'
++import { isValidAttributeName, styleObjectForEach } from './utils'
+ 
+ export { html as jsxTemplate }
+ 
+@@ -17,6 +17,9 @@ export const jsxAttr = (
+   key: string,
+   v: string | Promise<string> | Record<string, string | number | null | undefined | boolean>
+ ): HtmlEscapedString | Promise<HtmlEscapedString> => {
++  if (!isValidAttributeName(key)) {
++    return raw('')
++  }
+   const buffer: StringBuffer = [`${key}="`] as StringBuffer
+   if (key === 'style' && typeof v === 'object') {
+     // object to style strings
+diff --git a/src/jsx/utils.test.ts b/src/jsx/utils.test.ts
+index 4045ba97..afbd0294 100644
+--- a/src/jsx/utils.test.ts
++++ b/src/jsx/utils.test.ts
+@@ -1,4 +1,4 @@
+-import { normalizeIntrinsicElementKey, styleObjectForEach } from './utils'
++import { isValidAttributeName, normalizeIntrinsicElementKey, styleObjectForEach } from './utils'
+ 
+ describe('normalizeIntrinsicElementKey', () => {
+   test.each`
+@@ -17,6 +17,51 @@ describe('normalizeIntrinsicElementKey', () => {
+   })
+ })
+ 
++describe('isValidAttributeName', () => {
++  test.each`
++    name            | expected
++    ${'class'}      | ${true}
++    ${'id'}         | ${true}
++    ${'href'}       | ${true}
++    ${'data-foo'}   | ${true}
++    ${'aria-label'} | ${true}
++    ${'onclick'}    | ${true}
++    ${'viewBox'}    | ${true}
++    ${'xml:lang'}   | ${true}
++  `('should return $expected for valid name "$name"', ({ name, expected }) => {
++    expect(isValidAttributeName(name)).toBe(expected)
++  })
++
++  test.each`
++    name                             | description
++    ${''}                            | ${'empty string'}
++    ${'" onfocus="alert(1)'}         | ${'double quote'}
++    ${"' onfocus='alert(1)"}         | ${'single quote'}
++    ${'foo<bar'}                     | ${'less than'}
++    ${'"><script>alert(1)</script>'} | ${'greater than'}
++    ${'foo bar'}                     | ${'space'}
++    ${'foo=bar'}                     | ${'equals sign'}
++    ${'foo/bar'}                     | ${'slash'}
++    ${'foo\\bar'}                    | ${'backslash'}
++    ${'foo`bar'}                     | ${'backtick'}
++    ${'a\x00b'}                      | ${'null byte'}
++    ${'a\x1fb'}                      | ${'control character'}
++    ${'a\x7fb'}                      | ${'DEL character'}
++  `('should return false for "$description"', ({ name }) => {
++    expect(isValidAttributeName(name)).toBe(false)
++  })
++
++  test.each`
++    name            | description
++    ${'xlink:href'} | ${'namespace separator'}
++    ${'data.foo'}   | ${'dot'}
++    ${'data_foo'}   | ${'underscore'}
++    ${'é'}          | ${'non-ascii'}
++  `('should return true for valid "$description" names', ({ name }) => {
++    expect(isValidAttributeName(name)).toBe(true)
++  })
++})
++
+ describe('styleObjectForEach', () => {
+   describe('Should output the number as it is, when a number type is passed', () => {
+     test.each`
+diff --git a/src/jsx/utils.ts b/src/jsx/utils.ts
+index f64fa758..eeedb465 100644
+--- a/src/jsx/utils.ts
++++ b/src/jsx/utils.ts
+@@ -11,6 +11,33 @@ const normalizeElementKeyMap: Map<string, string> = new Map([
+ export const normalizeIntrinsicElementKey = (key: string): string =>
+   normalizeElementKeyMap.get(key) || key
+ 
++// eslint-disable-next-line no-control-regex
++const invalidAttributeNameCharRe = /[\s"'<>/=`\\\x00-\x1f\x7f-\x9f]/
++export const isValidAttributeName = (name: string): boolean => {
++  const len = name.length
++  if (len === 0) {
++    return false
++  }
++  for (let i = 0; i < len; i++) {
++    const c = name.charCodeAt(i)
++    if (
++      !(
++        (c >= 0x61 && c <= 0x7a) || // a-z
++        (c >= 0x41 && c <= 0x5a) || // A-Z
++        (c >= 0x30 && c <= 0x39) || // 0-9
++        c === 0x2d || // -
++        c === 0x5f || // _
++        c === 0x2e || // .
++        c === 0x3a // :
++      )
++    ) {
++      // non-fast-path character found — fall back to regex for the full name
++      return !invalidAttributeNameCharRe.test(name)
++    }
++  }
++  return true
++}
++
+ export const styleObjectForEach = (
+   style: Record<string, string | number>,
+   fn: (key: string, value: string | null) => void

@@ -1,0 +1,102 @@
+diff --git a/src/client/types.test.ts b/src/client/types.test.ts
+index f13a6fcf..13d3e58e 100644
+--- a/src/client/types.test.ts
++++ b/src/client/types.test.ts
+@@ -117,6 +117,7 @@ describe('app.all()', () => {
+     expectTypeOf(client['all-route']).toHaveProperty('$delete')
+     expectTypeOf(client['all-route']).toHaveProperty('$options')
+     expectTypeOf(client['all-route']).toHaveProperty('$patch')
++    expectTypeOf(client['all-route']).toHaveProperty('$query')
+   })
+ 
+   it('should have correct return type for expanded methods', async () => {
+diff --git a/src/client/types.ts b/src/client/types.ts
+index 5ec978a5..623cf9bb 100644
+--- a/src/client/types.ts
++++ b/src/client/types.ts
+@@ -12,7 +12,7 @@ type MethodNameAll = `$${typeof METHOD_NAME_ALL_LOWERCASE}`
+ 
+ /**
+  * Type representing all standard HTTP methods prefixed with '$'
+- * e.g., '$get' | '$post' | '$put' | '$delete' | '$options' | '$patch'
++ * e.g., '$get' | '$post' | '$put' | '$delete' | '$options' | '$patch' | '$query'
+  */
+ type StandardMethods = `$${(typeof METHODS)[number]}`
+ 
+diff --git a/src/hono-base.ts b/src/hono-base.ts
+index 698ba64a..e6a7278d 100644
+--- a/src/hono-base.ts
++++ b/src/hono-base.ts
+@@ -107,6 +107,7 @@ class Hono<
+   delete!: HandlerInterface<E, 'delete', S, BasePath, CurrentPath>
+   options!: HandlerInterface<E, 'options', S, BasePath, CurrentPath>
+   patch!: HandlerInterface<E, 'patch', S, BasePath, CurrentPath>
++  query!: HandlerInterface<E, 'query', S, BasePath, CurrentPath>
+   all!: HandlerInterface<E, 'all', S, BasePath, CurrentPath>
+   on: OnHandlerInterface<E, S, BasePath>
+   use: MiddlewareHandlerInterface<E, S, BasePath>
+diff --git a/src/hono.test.ts b/src/hono.test.ts
+index 273f8670..8bd83e3c 100644
+--- a/src/hono.test.ts
++++ b/src/hono.test.ts
+@@ -2079,6 +2079,47 @@ describe('Multiple methods with `app.on`', () => {
+   })
+ })
+ 
++describe('Using QUERY with `app.query` and `app.on`', () => {
++  it('Should handle QUERY method with app.query()', async () => {
++    const app = new Hono()
++
++    app.query('/query', (c) => c.text('Accepted', 202))
++
++    const req = new Request('http://localhost/query', {
++      method: 'QUERY',
++    })
++    const res = await app.request(req)
++    expect(res.status).toBe(202)
++    expect(await res.text()).toBe('Accepted')
++  })
++
++  it('Should handle QUERY method with RegExpRouter', async () => {
++    const app = new Hono({ router: new RegExpRouter() })
++
++    app.on('QUERY', '/query', (c) => c.text('Accepted', 202))
++
++    const req = new Request('http://localhost/query', {
++      method: 'QUERY',
++    })
++    const res = await app.request(req)
++    expect(res.status).toBe(202)
++    expect(await res.text()).toBe('Accepted')
++  })
++
++  it('Should handle QUERY method with TrieRouter', async () => {
++    const app = new Hono({ router: new TrieRouter() })
++
++    app.on('QUERY', '/query', (c) => c.text('Accepted', 202))
++
++    const req = new Request('http://localhost/query', {
++      method: 'QUERY',
++    })
++    const res = await app.request(req)
++    expect(res.status).toBe(202)
++    expect(await res.text()).toBe('Accepted')
++  })
++})
++
+ describe('Multiple paths with one handler', () => {
+   const app = new Hono()
+ 
+diff --git a/src/router.ts b/src/router.ts
+index 180b1e64..ec12588a 100644
+--- a/src/router.ts
++++ b/src/router.ts
+@@ -14,7 +14,7 @@ export const METHOD_NAME_ALL_LOWERCASE = 'all' as const
+ /**
+  * Array of supported HTTP methods.
+  */
+-export const METHODS = ['get', 'post', 'put', 'delete', 'options', 'patch'] as const
++export const METHODS = ['get', 'post', 'put', 'delete', 'options', 'patch', 'query'] as const
+ /**
+  * Error message indicating that a route cannot be added because the matcher is already built.
+  */

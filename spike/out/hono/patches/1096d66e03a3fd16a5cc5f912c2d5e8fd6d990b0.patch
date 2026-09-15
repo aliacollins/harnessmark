@@ -1,0 +1,69 @@
+diff --git a/src/client/client.test.ts b/src/client/client.test.ts
+index 6bec7179..b56b7de7 100644
+--- a/src/client/client.test.ts
++++ b/src/client/client.test.ts
+@@ -1919,6 +1919,36 @@ describe('Custom buildSearchParams', () => {
+ 
+     expect(url.href).toBe('http://localhost/search?q=test&tags=tag1&tags=tag2')
+   })
++
++  it('Should use custom buildSearchParams in $ws() method', () => {
++    const webSocketMock = vi.fn()
++    const client = hc<AppType>('http://localhost', {
++      buildSearchParams: customBuildSearchParams,
++      webSocket(url, options) {
++        return webSocketMock(url, options)
++      },
++    })
++    // @ts-expect-error search route does not explicitly define $ws in mock AppType
++    client.search.$ws({ query: { q: 'test', tags: ['tag1', 'tag2'] } })
++
++    expect(webSocketMock).toHaveBeenCalledWith(
++      'ws://localhost/search?q=test&tags%5B%5D=tag1&tags%5B%5D=tag2',
++      undefined
++    )
++  })
++
++  it('Should filter out undefined query parameters in $ws()', () => {
++    const webSocketMock = vi.fn()
++    const client = hc<AppType>('http://localhost', {
++      webSocket(url, options) {
++        return webSocketMock(url, options)
++      },
++    })
++    // @ts-expect-error search route does not explicitly define $ws in mock AppType
++    client.search.$ws({ query: { q: 'test', tags: undefined as any } })
++
++    expect(webSocketMock).toHaveBeenCalledWith('ws://localhost/search?q=test', undefined)
++  })
+ })
+ 
+ describe('ApplyGlobalResponse Type Helper', () => {
+diff --git a/src/client/client.ts b/src/client/client.ts
+index 88d20789..1e7ecdb2 100644
+--- a/src/client/client.ts
++++ b/src/client/client.ts
+@@ -199,19 +199,16 @@ export const hc = <T extends Hono<any, any, any>, Prefix extends string = string
+     }
+     if (method === 'ws') {
+       const webSocketUrl = replaceUrlProtocol(
+-        opts.args[0] && opts.args[0].param ? replaceUrlParam(url, opts.args[0].param) : url,
++        opts.args[0]?.param ? replaceUrlParam(url, opts.args[0].param) : url,
+         'ws'
+       )
+       const targetUrl = new URL(webSocketUrl)
+ 
+       const queryParams: Record<string, string | string[]> | undefined = opts.args[0]?.query
+       if (queryParams) {
+-        Object.entries(queryParams).forEach(([key, value]) => {
+-          if (Array.isArray(value)) {
+-            value.forEach((item) => targetUrl.searchParams.append(key, item))
+-          } else {
+-            targetUrl.searchParams.set(key, value)
+-          }
++        const searchParams = buildSearchParamsOption(queryParams)
++        searchParams.forEach((value, key) => {
++          targetUrl.searchParams.append(key, value)
+         })
+       }
+       const establishWebSocket = (...args: ConstructorParameters<typeof WebSocket>) => {

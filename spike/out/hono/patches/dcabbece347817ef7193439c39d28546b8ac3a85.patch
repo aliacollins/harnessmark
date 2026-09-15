@@ -1,0 +1,132 @@
+diff --git a/src/helper/route/index.test.ts b/src/helper/route/index.test.ts
+index 18106a78..9510eca0 100644
+--- a/src/helper/route/index.test.ts
++++ b/src/helper/route/index.test.ts
+@@ -1,4 +1,5 @@
+ import { Context } from '../../context'
++import { Hono } from '../../hono'
+ import { matchedRoutes, routePath, baseRoutePath, basePath } from '.'
+ 
+ const defaultContextOptions = {
+@@ -190,6 +191,26 @@ describe('basePath', () => {
+     expect(basePath(c)).toBe('/sub-app-path/foo/app')
+   })
+ 
++  it('should return the fully expanded basePath for nested route() apps', async () => {
++    const app = new Hono()
++    const sub1 = new Hono()
++    const sub2 = new Hono()
++    const sub3 = new Hono()
++
++    sub3.get('/assets/*', (c) => c.json({ baseRoutePath: baseRoutePath(c), basePath: basePath(c) }))
++    sub2.route('/:app/sub3/assets', sub3)
++    sub1.route('/:app/sub2/assets', sub2)
++    app.route('/:app/sub1/assets', sub1)
++
++    const res = await app.request(
++      '/s1/sub1/assets/ss2/sub2/assets/sss3/sub3/assets/assets/file-hoge/assets-kage.js'
++    )
++    expect(await res.json()).toEqual({
++      baseRoutePath: '/:app/sub1/assets/:app/sub2/assets/:app/sub3/assets',
++      basePath: '/s1/sub1/assets/ss2/sub2/assets/sss3/sub3/assets',
++    })
++  })
++
+   it('should return basePath with custom regex pattern', () => {
+     const handlerA = () => {}
+     const rawRequest = new Request('http://localhost?page=2&tag=A&tag=B')
+diff --git a/src/hono-base.ts b/src/hono-base.ts
+index df6eb6f5..9ae29e04 100644
+--- a/src/hono-base.ts
++++ b/src/hono-base.ts
+@@ -226,7 +226,7 @@ class Hono<
+         ;(handler as any)[COMPOSED_HANDLER] = r.handler
+       }
+ 
+-      subApp.#addRoute(r.method, r.path, handler)
++      subApp.#addRoute(r.method, r.path, handler, r.basePath)
+     })
+     return this
+   }
+@@ -382,10 +382,16 @@ class Hono<
+     return this
+   }
+ 
+-  #addRoute(method: string, path: string, handler: H): void {
++  #addRoute(method: string, path: string, handler: H, baseRoutePath?: string): void {
+     method = method.toUpperCase()
+     path = mergePath(this._basePath, path)
+-    const r: RouterRoute = { basePath: this._basePath, path, method, handler }
++    const r: RouterRoute = {
++      basePath:
++        baseRoutePath !== undefined ? mergePath(this._basePath, baseRoutePath) : this._basePath,
++      path,
++      method,
++      handler,
++    }
+     this.router.add(method, path, [handler, r])
+     this.routes.push(r)
+   }
+diff --git a/src/hono.test.ts b/src/hono.test.ts
+index 6b8c584b..fd0c39a6 100644
+--- a/src/hono.test.ts
++++ b/src/hono.test.ts
+@@ -484,6 +484,58 @@ describe('Routing', () => {
+     expect(await res.text()).toBe('get /book')
+   })
+ 
++  describe('Nested route - basePath of the mounted routes', () => {
++    it('Should set basePath to the mount path', () => {
++      const app = new Hono()
++      const sub = new Hono()
++      sub.get('/posts/:id', (c) => c.text('post'))
++      app.route('/:sub', sub)
++
++      expect(app.routes).toEqual([
++        {
++          basePath: '/:sub',
++          method: 'GET',
++          path: '/:sub/posts/:id',
++          handler: expect.any(Function),
++        },
++      ])
++    })
++
++    it('Should accumulate basePath through nested route() calls', () => {
++      const app = new Hono()
++      const sub1 = new Hono()
++      const sub2 = new Hono()
++      sub2.get('/posts/:id', (c) => c.text('post'))
++      sub1.route('/:sub2', sub2)
++      app.route('/:sub1', sub1)
++
++      expect(app.routes).toEqual([
++        {
++          basePath: '/:sub1/:sub2',
++          method: 'GET',
++          path: '/:sub1/:sub2/posts/:id',
++          handler: expect.any(Function),
++        },
++      ])
++    })
++
++    it('Should merge the basePath of a subApp created with basePath()', () => {
++      const app = new Hono()
++      const sub = new Hono().basePath('/book')
++      sub.get('/:id', (c) => c.text('book'))
++      app.route('/api', sub)
++
++      expect(app.routes).toEqual([
++        {
++          basePath: '/api/book',
++          method: 'GET',
++          path: '/api/book/:id',
++          handler: expect.any(Function),
++        },
++      ])
++    })
++  })
++
+   it('Multiple route', async () => {
+     const app = new Hono()
+ 

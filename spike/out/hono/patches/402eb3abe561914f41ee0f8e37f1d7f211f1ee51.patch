@@ -1,0 +1,136 @@
+diff --git a/src/middleware/secure-headers/index.test.ts b/src/middleware/secure-headers/index.test.ts
+index b7cded3a..e4dc4c8f 100644
+--- a/src/middleware/secure-headers/index.test.ts
++++ b/src/middleware/secure-headers/index.test.ts
+@@ -481,6 +481,81 @@ describe('Secure Headers Middleware', () => {
+     })
+   })
+ 
++  describe('CSP with combined modes', () => {
++    it('keeps the enforced policy when report-only uses a nonce', async () => {
++      const app = new Hono()
++      app.use(
++        '/test',
++        secureHeaders({
++          contentSecurityPolicy: {
++            defaultSrc: ["'self'"],
++          },
++          contentSecurityPolicyReportOnly: {
++            scriptSrc: ["'self'", NONCE],
++          },
++        })
++      )
++      app.all('*', (c) => c.text('test'))
++
++      const res = await app.request('/test')
++
++      expect(res.status).toBe(200)
++      expect(res.headers.get('Content-Security-Policy')).toBe("default-src 'self'")
++      expect(res.headers.get('Content-Security-Policy-Report-Only')).toMatch(
++        /^script-src 'self' 'nonce-[a-zA-Z0-9+/]+=*'$/
++      )
++    })
++
++    it('keeps the report-only policy when the enforced policy uses a nonce', async () => {
++      const app = new Hono()
++      app.use(
++        '/test',
++        secureHeaders({
++          contentSecurityPolicy: {
++            scriptSrc: ["'self'", NONCE],
++          },
++          contentSecurityPolicyReportOnly: {
++            defaultSrc: ["'self'"],
++          },
++        })
++      )
++      app.all('*', (c) => c.text('test'))
++
++      const res = await app.request('/test')
++
++      expect(res.status).toBe(200)
++      expect(res.headers.get('Content-Security-Policy')).toMatch(
++        /^script-src 'self' 'nonce-[a-zA-Z0-9+/]+=*'$/
++      )
++      expect(res.headers.get('Content-Security-Policy-Report-Only')).toBe("default-src 'self'")
++    })
++
++    it('supports nonces in both policies', async () => {
++      const app = new Hono()
++      app.use(
++        '/test',
++        secureHeaders({
++          contentSecurityPolicy: {
++            scriptSrc: ["'self'", NONCE],
++          },
++          contentSecurityPolicyReportOnly: {
++            styleSrc: ["'self'", NONCE],
++          },
++        })
++      )
++      app.all('*', (c) => c.text('test'))
++
++      const res = await app.request('/test')
++      const csp = res.headers.get('Content-Security-Policy')
++      const reportOnly = res.headers.get('Content-Security-Policy-Report-Only')
++      const nonce = csp?.match(/'nonce-([^']+)'/)?.[1]
++
++      expect(res.status).toBe(200)
++      expect(nonce).toBeTruthy()
++      expect(reportOnly).toContain(`'nonce-${nonce}'`)
++    })
++  })
++
+   // OUR NEW REPORT-URI TESTS
+   describe('CSP report-uri directive', () => {
+     it('should set report-uri with single endpoint', async () => {
+diff --git a/src/middleware/secure-headers/secure-headers.ts b/src/middleware/secure-headers/secure-headers.ts
+index cb81a0fd..8e7eb4e6 100644
+--- a/src/middleware/secure-headers/secure-headers.ts
++++ b/src/middleware/secure-headers/secure-headers.ts
+@@ -182,7 +182,10 @@ export const secureHeaders = (customOptions?: SecureHeadersOptions): MiddlewareH
+   const callbacks: SecureHeadersCallback[] = []
+ 
+   if (options.contentSecurityPolicy) {
+-    const [callback, value] = getCSPDirectives(options.contentSecurityPolicy)
++    const [callback, value] = getCSPDirectives(
++      options.contentSecurityPolicy,
++      'Content-Security-Policy'
++    )
+     if (callback) {
+       callbacks.push(callback)
+     }
+@@ -190,7 +193,10 @@ export const secureHeaders = (customOptions?: SecureHeadersOptions): MiddlewareH
+   }
+ 
+   if (options.contentSecurityPolicyReportOnly) {
+-    const [callback, value] = getCSPDirectives(options.contentSecurityPolicyReportOnly)
++    const [callback, value] = getCSPDirectives(
++      options.contentSecurityPolicyReportOnly,
++      'Content-Security-Policy-Report-Only'
++    )
+     if (callback) {
+       callbacks.push(callback)
+     }
+@@ -238,7 +244,8 @@ function getFilteredHeaders(options: SecureHeadersOptions): [string, string][] {
+ }
+ 
+ function getCSPDirectives(
+-  contentSecurityPolicy: ContentSecurityPolicyOptions
++  contentSecurityPolicy: ContentSecurityPolicyOptions,
++  headerName: 'Content-Security-Policy' | 'Content-Security-Policy-Report-Only'
+ ): [SecureHeadersCallback | undefined, string | string[]] {
+   const callbacks: ((ctx: Context, values: string[]) => void)[] = []
+   const resultValues: string[] = []
+@@ -270,10 +277,7 @@ function getCSPDirectives(
+     : [
+         (ctx, headersToSet) =>
+           headersToSet.map((values) => {
+-            if (
+-              values[0] === 'Content-Security-Policy' ||
+-              values[0] === 'Content-Security-Policy-Report-Only'
+-            ) {
++            if (values[0] === headerName) {
+               const clone = values[1].slice() as unknown as string[]
+               callbacks.forEach((cb) => {
+                 cb(ctx, clone)

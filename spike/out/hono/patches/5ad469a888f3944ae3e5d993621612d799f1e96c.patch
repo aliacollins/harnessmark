@@ -1,0 +1,78 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 598f68f5..70b44b68 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -73,4 +73,50 @@ describe('JSON pretty by Middleware', () => {
+   "message": "Hono!"
+ }`)
+   })
++
++  it('Should return pretty JSON output for structured JSON content-types (+json)', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/problem', (c) => {
++      return c.newResponse(JSON.stringify({ type: 'about:blank', title: 'Bad Request' }), 400, {
++        'Content-Type': 'application/problem+json',
++      })
++    })
++    app.get('/jsonapi', (c) => {
++      return c.newResponse(JSON.stringify({ data: { id: '1', type: 'articles' } }), 200, {
++        'Content-Type': 'application/vnd.api+json',
++      })
++    })
++
++    const problemRes = await app.request('http://localhost/problem')
++    expect(await problemRes.text()).toBe(`{
++  "type": "about:blank",
++  "title": "Bad Request"
++}`)
++
++    const jsonApiRes = await app.request('http://localhost/jsonapi')
++    expect(await jsonApiRes.text()).toBe(`{
++  "data": {
++    "id": "1",
++    "type": "articles"
++  }
++}`)
++  })
++
++  it('Should not touch responses with non-JSON content-types', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/text', (c) => c.text('{"message":"Hono!"}'))
++    app.get('/json-seq', (c) => {
++      return c.body('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json-seq',
++      })
++    })
++
++    const textRes = await app.request('http://localhost/text')
++    expect(await textRes.text()).toBe('{"message":"Hono!"}')
++
++    const jsonSeqRes = await app.request('http://localhost/json-seq')
++    expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index 785e4a9a..bc1a9b9d 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -25,6 +25,8 @@ interface PrettyOptions {
+   force?: boolean
+ }
+ 
++const jsonContentTypeRegex = /^application\/(?:[a-z0-9._-]+\+)?json(?=$|[;\s])/i
++
+ /**
+  * Pretty JSON Middleware for Hono.
+  *
+@@ -48,7 +50,8 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+   return async function prettyJSON(c, next) {
+     const pretty = options?.force || c.req.query(targetQuery) || c.req.query(targetQuery) === ''
+     await next()
+-    if (pretty && c.res.headers.get('Content-Type')?.startsWith('application/json')) {
++    const contentType = c.res.headers.get('Content-Type')
++    if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+       const obj = await c.res.json()
+       c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
+     }

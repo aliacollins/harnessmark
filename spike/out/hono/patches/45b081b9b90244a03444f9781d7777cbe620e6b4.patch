@@ -1,0 +1,45 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index 2ff5a40e..2b8d9749 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -417,6 +417,24 @@ describe('EventProcessor.createRequest', () => {
+ })
+ 
+ describe('handle', () => {
++  it('Should route a V1 REST event by its path even when a base path mapping adds rawPath', async () => {
++    const app = new Hono()
++    app.get('/my/path', (c) => c.text('Hello'))
++    const handler = handle(app)
++
++    // A custom domain base path mapping makes API Gateway add a `rawPath` to the
++    // V1 (REST API) event, holding the path before the mapping was stripped. The
++    // event is still V1: it carries `path` and a V1 request context with no `http`.
++    const event: LambdaEvent = {
++      ...baseV1Event,
++      rawPath: '/base/my/path',
++    }
++
++    const result = await handler(event)
++    expect(result.statusCode).toBe(200)
++    expect(result.body).toBe('Hello')
++  })
++
+   it('Should return 400 when request contains invalid header names (v2)', async () => {
+     const app = new Hono()
+     app.get('/my/path', (c) => c.text('Hello'))
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 5259d8f9..71de9537 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -644,7 +644,10 @@ const isProxyEventALB = (event: LambdaEvent): event is ALBProxyEvent => {
+ }
+ 
+ const isProxyEventV2 = (event: LambdaEvent): event is APIGatewayProxyEventV2 => {
+-  return Object.hasOwn(event, 'rawPath')
++  // A V1 (REST API) event behind a custom domain base path mapping also carries a
++  // `rawPath`, so `rawPath` alone is not enough to identify a V2 event. Every V2
++  // (HTTP API / function URL) event has an `http` object on its request context.
++  return Object.hasOwn(event, 'rawPath') && Object.hasOwn(event.requestContext ?? {}, 'http')
+ }
+ 
+ const isLatticeEventV2 = (event: LambdaEvent): event is LatticeProxyEventV2 => {

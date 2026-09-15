@@ -1,0 +1,114 @@
+diff --git a/__tests__/base.js b/__tests__/base.js
+index fc249e5..c293eef 100644
+--- a/__tests__/base.js
++++ b/__tests__/base.js
+@@ -8,7 +8,8 @@ import {
+ 	immerable,
+ 	enablePatches,
+ 	enableMapSet,
+-	enableArrayMethods
++	enableArrayMethods,
++	applyPatches
+ } from "../src/immer"
+ 
+ import {
+@@ -356,6 +357,37 @@ function runBaseTest(
+ 					expect(nextState).toEqual([{value: 1}, {value: 2}, {value: 3}])
+ 				})
+ 
++				it("mutating an element after reverse() does not mutate the base", () => {
++					const reordered = {id: 3}
++					const baseState = [{id: 1}, {id: 2}, reordered]
++					const nextState = produce(baseState, s => {
++						s.reverse()
++						// After reverse, the element at index 0 is the relocated base
++						// object. It must be drafted, otherwise writing to it mutates base.
++						expect(isDraft(s[0])).toBe(true)
++						s[0].id = 99
++					})
++					expect(baseState).toEqual([{id: 1}, {id: 2}, {id: 3}])
++					expect(reordered).toEqual({id: 3})
++					expect(nextState).toEqual([{id: 99}, {id: 2}, {id: 1}])
++				})
++
++				it("mutating an element after sort() does not mutate the base", () => {
++					const baseState = [{value: 3}, {value: 1}, {value: 2}]
++					const [nextState, patches, inverse] = produceWithPatches(
++						baseState,
++						s => {
++							s.sort((a, b) => a.value - b.value)
++							expect(isDraft(s[0])).toBe(true)
++							s[0].value = 99
++						}
++					)
++					expect(baseState).toEqual([{value: 3}, {value: 1}, {value: 2}])
++					expect(nextState).toEqual([{value: 99}, {value: 2}, {value: 3}])
++					expect(applyPatches(baseState, patches)).toEqual(nextState)
++					expect(applyPatches(nextState, inverse)).toEqual(baseState)
++				})
++
+ 				describe("push()", () => {
+ 					test("push single item", () => {
+ 						const base = {items: [{id: 1}, {id: 2}]}
+diff --git a/src/core/proxy.ts b/src/core/proxy.ts
+index bd98e27..70e95ad 100644
+--- a/src/core/proxy.ts
++++ b/src/core/proxy.ts
+@@ -44,6 +44,7 @@ export interface ProxyArrayState extends ProxyBaseState {
+ 	draft_: Drafted<AnyArray, ProxyArrayState>
+ 	operationMethod?: string
+ 	allIndicesReassigned_?: boolean
++	baseRefs_?: Set<any>
+ }
+ 
+ type ProxyState = ProxyObjectState | ProxyArrayState
+@@ -146,7 +147,10 @@ export const objectTraps: ProxyHandler<ProxyState> = {
+ 		}
+ 		// Check for existing draft in modified state.
+ 		// Assigned values are never drafted. This catches any drafts we created, too.
+-		if (value === peek(state.base_, prop)) {
++		if (
++			value === peek(state.base_, prop) ||
++			isRelocatedBaseRef(state, prop, value)
++		) {
+ 			prepareCopy(state)
+ 			// Ensure array keys are always numbers
+ 			const childKey = state.type_ === ArchType.Array ? +(prop as string) : prop
+@@ -288,6 +292,25 @@ function peek(draft: Drafted, prop: PropertyKey) {
+ 	return source[prop]
+ }
+ 
++// Reordering array methods (reverse, sort) from the array-methods plugin run
++// natively on `copy_`, which still holds raw base references. This relocates an
++// un-drafted base object to a position where it no longer matches `base_[prop]`,
++// so the normal positional check above misses it and the get trap would hand back
++// the raw base object, breaking the guarantee that the base state is never mutated.
++// Detect such a relocated base reference so it is drafted before being exposed.
++function isRelocatedBaseRef(state: ImmerState, prop: PropertyKey, value: any) {
++	if (
++		state.type_ !== ArchType.Array ||
++		!(state as ProxyArrayState).allIndicesReassigned_ ||
++		state.assigned_?.get(prop) ||
++		!isDraftable(value) ||
++		value[DRAFT_STATE]
++	) {
++		return false
++	}
++	return (state as ProxyArrayState).baseRefs_!.has(value)
++}
++
+ function readPropFromProto(state: ImmerState, source: any, prop: PropertyKey) {
+ 	const desc = getDescriptorFromProto(source, prop)
+ 	return desc
+diff --git a/src/plugins/arrayMethods.ts b/src/plugins/arrayMethods.ts
+index 7c4cb7f..a4d3d01 100644
+--- a/src/plugins/arrayMethods.ts
++++ b/src/plugins/arrayMethods.ts
+@@ -181,6 +181,7 @@ export function enableArrayMethods() {
+ 
+ 	function markAllIndicesReassigned(state: ProxyArrayState) {
+ 		state.allIndicesReassigned_ = true
++		state.baseRefs_ = new Set(state.base_)
+ 	}
+ 
+ 	function normalizeSliceIndex(index: number, length: number): number {

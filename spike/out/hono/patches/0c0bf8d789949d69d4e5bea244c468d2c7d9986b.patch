@@ -1,0 +1,122 @@
+diff --git a/src/middleware/bearer-auth/index.test.ts b/src/middleware/bearer-auth/index.test.ts
+index 2dfa97e9..350bdb07 100644
+--- a/src/middleware/bearer-auth/index.test.ts
++++ b/src/middleware/bearer-auth/index.test.ts
+@@ -923,3 +923,62 @@ describe('Bearer Auth by Middleware', () => {
+     expect(await res.text()).toBe('{"message":"Custom invalid token message as function object"}')
+   })
+ })
++
++describe('Bearer Auth with prefix containing regex metacharacters', () => {
++  let app: Hono
++  let handlerExecuted: boolean
++  const token = 'testtoken123'
++
++  beforeEach(() => {
++    app = new Hono()
++    handlerExecuted = false
++  })
++
++  it('Should not throw when prefix contains regex metacharacters', () => {
++    expect(() => {
++      bearerAuth({ token, prefix: 'Bearer (v2)' })
++    }).not.toThrow()
++  })
++
++  it('Should authorize with prefix containing parentheses', async () => {
++    app.use('/*', bearerAuth({ token, prefix: 'Bearer(v2)' }))
++    app.get('/*', (c) => {
++      handlerExecuted = true
++      return c.text('ok')
++    })
++
++    const req = new Request('http://localhost/')
++    req.headers.set('Authorization', `Bearer(v2) ${token}`)
++    const res = await app.request(req)
++    expect(res.status).toBe(200)
++    expect(handlerExecuted).toBeTruthy()
++  })
++
++  it('Should authorize with prefix containing dots and plus signs', async () => {
++    app.use('/*', bearerAuth({ token, prefix: 'X.Auth+v2' }))
++    app.get('/*', (c) => {
++      handlerExecuted = true
++      return c.text('ok')
++    })
++
++    const req = new Request('http://localhost/')
++    req.headers.set('Authorization', `X.Auth+v2 ${token}`)
++    const res = await app.request(req)
++    expect(res.status).toBe(200)
++    expect(handlerExecuted).toBeTruthy()
++  })
++
++  it('Should not match when prefix metacharacters are interpreted as regex', async () => {
++    app.use('/*', bearerAuth({ token, prefix: 'X.Y' }))
++    app.get('/*', (c) => {
++      handlerExecuted = true
++      return c.text('ok')
++    })
++
++    const req = new Request('http://localhost/')
++    req.headers.set('Authorization', `XZY ${token}`)
++    const res = await app.request(req)
++    expect(res.status).toBe(400)
++    expect(handlerExecuted).toBeFalsy()
++  })
++})
+diff --git a/src/middleware/bearer-auth/index.ts b/src/middleware/bearer-auth/index.ts
+index 122ccc55..1a7e7854 100644
+--- a/src/middleware/bearer-auth/index.ts
++++ b/src/middleware/bearer-auth/index.ts
+@@ -112,9 +112,9 @@ export const bearerAuth = (options: BearerAuthOptions): MiddlewareHandler => {
+   }
+ 
+   const realm = options.realm?.replace(/"/g, '\\"')
+-  const prefixRegexStr = options.prefix === '' ? '' : `${options.prefix} +`
+-  const regexp = new RegExp(`^${prefixRegexStr}(${TOKEN_STRINGS}) *$`, 'i')
+-  const wwwAuthenticatePrefix = options.prefix === '' ? '' : `${options.prefix} `
++  const prefix = options.prefix
++  const tokenRegexp = new RegExp(`^${TOKEN_STRINGS}$`)
++  const wwwAuthenticatePrefix = prefix === '' ? '' : `${prefix} `
+ 
+   const throwHTTPException = async (
+     c: Context,
+@@ -164,8 +164,19 @@ export const bearerAuth = (options: BearerAuthOptions): MiddlewareHandler => {
+           'Unauthorized'
+       )
+     } else {
+-      const match = regexp.exec(headerToken)
+-      if (!match) {
++      let tokenValue: string | undefined
++
++      if (prefix === '') {
++        tokenValue = headerToken
++      } else {
++        const headerLower = headerToken.toLowerCase()
++        const prefixLower = prefix.toLowerCase()
++        if (headerLower.startsWith(prefixLower) && headerToken[prefix.length] === ' ') {
++          tokenValue = headerToken.slice(prefix.length).trimStart()
++        }
++      }
++
++      if (!tokenValue || !tokenRegexp.test(tokenValue)) {
+         // Invalid Request
+         await throwHTTPException(
+           c,
+@@ -179,12 +190,12 @@ export const bearerAuth = (options: BearerAuthOptions): MiddlewareHandler => {
+       } else {
+         let equal = false
+         if ('verifyToken' in options) {
+-          equal = await options.verifyToken(match[1], c)
++          equal = await options.verifyToken(tokenValue, c)
+         } else if (typeof options.token === 'string') {
+-          equal = await timingSafeEqual(options.token, match[1], options.hashFunction)
++          equal = await timingSafeEqual(options.token, tokenValue, options.hashFunction)
+         } else if (Array.isArray(options.token) && options.token.length > 0) {
+           for (const token of options.token) {
+-            if (await timingSafeEqual(token, match[1], options.hashFunction)) {
++            if (await timingSafeEqual(token, tokenValue, options.hashFunction)) {
+               equal = true
+               break
+             }

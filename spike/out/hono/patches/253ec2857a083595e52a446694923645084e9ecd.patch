@@ -1,0 +1,55 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index 425aaa7e..8b3df863 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -81,18 +81,25 @@ const baseV2Event: LambdaEvent = {
+ }
+ 
+ describe('isContentTypeBinary', () => {
+-  it('Should determine whether it is binary', () => {
+-    expect(defaultIsContentTypeBinary('image/png')).toBe(true)
+-    expect(defaultIsContentTypeBinary('font/woff2')).toBe(true)
+-    expect(defaultIsContentTypeBinary('image/svg+xml')).toBe(false)
+-    expect(defaultIsContentTypeBinary('image/svg+xml; charset=UTF-8')).toBe(false)
+-    expect(defaultIsContentTypeBinary('text/plain')).toBe(false)
+-    expect(defaultIsContentTypeBinary('text/plain; charset=UTF-8')).toBe(false)
+-    expect(defaultIsContentTypeBinary('text/css')).toBe(false)
+-    expect(defaultIsContentTypeBinary('text/javascript')).toBe(false)
+-    expect(defaultIsContentTypeBinary('application/json')).toBe(false)
+-    expect(defaultIsContentTypeBinary('application/ld+json')).toBe(false)
+-    expect(defaultIsContentTypeBinary('application/json')).toBe(false)
++  it.each([
++    ['image/png', true],
++    ['font/woff2', true],
++    ['image/svg+xml', false],
++    ['image/svg+xml; charset=UTF-8', false],
++    ['text/plain', false],
++    ['text/plain; charset=UTF-8', false],
++    ['text/css', false],
++    ['text/javascript', false],
++    ['application/json', false],
++    ['application/ld+json', false],
++    ['application/json', false],
++    ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', true],
++    ['application/msword', true],
++    ['application/epub+zip', true],
++    ['application/ld+json', false],
++    ['application/vnd.oasis.opendocument.text', true],
++  ])('Should determine whether %s it is binary', (mimeType: string, expected: boolean) => {
++    expect(defaultIsContentTypeBinary(mimeType)).toBe(expected)
+   })
+ })
+ 
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 0f9436e6..dd49d677 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -564,7 +564,7 @@ const isProxyEventV2 = (event: LambdaEvent): event is APIGatewayProxyEventV2 =>
+  * @returns True if the content type is binary, false otherwise.
+  */
+ export const defaultIsContentTypeBinary = (contentType: string): boolean => {
+-  return !/^(text\/(plain|html|css|javascript|csv).*|application\/(.*json|.*xml).*|image\/svg\+xml.*)$/.test(
++  return !/^text\/(?:plain|html|css|javascript|csv)|(?:\/|\+)(?:json|xml)\s*(?:;|$)/.test(
+     contentType
+   )
+ }

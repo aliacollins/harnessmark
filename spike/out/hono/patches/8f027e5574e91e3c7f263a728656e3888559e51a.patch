@@ -1,0 +1,52 @@
+diff --git a/src/helper/ssg/ssg.test.tsx b/src/helper/ssg/ssg.test.tsx
+index 11ea90fb..302a0bdb 100644
+--- a/src/helper/ssg/ssg.test.tsx
++++ b/src/helper/ssg/ssg.test.tsx
+@@ -541,6 +541,18 @@ describe('saveContentToFile function', () => {
+       mimeType: htmlMimeType,
+     }
+ 
++    const atomData = {
++      routePath: '/atom',
++      content: yamlContent,
++      mimeType: 'application/atom+xml',
++    }
++
++    const rssData = {
++      routePath: '/rss',
++      content: yamlContent,
++      mimeType: 'application/rss+xml',
++    }
++
+     const fsMock: FileSystemModule = {
+       writeFile: vi.fn(() => Promise.resolve()),
+       mkdir: vi.fn(() => Promise.resolve()),
+@@ -557,11 +569,15 @@ describe('saveContentToFile function', () => {
+       ...defaultExtensionMap,
+       ...extensionMap,
+     })
++    await saveContentToFile(Promise.resolve(atomData), fsMock, './static')
++    await saveContentToFile(Promise.resolve(rssData), fsMock, './static')
+ 
+     expect(fsMock.writeFile).toHaveBeenCalledWith('static/yaml.yml', yamlContent)
+     expect(fsMock.writeFile).toHaveBeenCalledWith('static/yaml2.xyml', yamlContent)
+     expect(fsMock.writeFile).toHaveBeenCalledWith('static/html.htm', yamlContent) // extensionMap
+     expect(fsMock.writeFile).toHaveBeenCalledWith('static/html.html', yamlContent) // default + extensionMap
++    expect(fsMock.writeFile).toHaveBeenCalledWith('static/atom.xml', yamlContent)
++    expect(fsMock.writeFile).toHaveBeenCalledWith('static/rss.xml', yamlContent)
+   })
+ 
+   it('should reject writing files outside outDir via path traversal', async () => {
+diff --git a/src/helper/ssg/ssg.ts b/src/helper/ssg/ssg.ts
+index 3794e46c..c0569ded 100644
+--- a/src/helper/ssg/ssg.ts
++++ b/src/helper/ssg/ssg.ts
+@@ -91,6 +91,8 @@ export const defaultExtensionMap: Record<string, string> = {
+   'text/html': 'html',
+   'text/xml': 'xml',
+   'application/xml': 'xml',
++  'application/atom+xml': 'xml',
++  'application/rss+xml': 'xml',
+   'application/yaml': 'yaml',
+ }
+ 

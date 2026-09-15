@@ -1,0 +1,88 @@
+diff --git a/src/utils/url.test.ts b/src/utils/url.test.ts
+index e23ed346..c30213c0 100644
+--- a/src/utils/url.test.ts
++++ b/src/utils/url.test.ts
+@@ -125,6 +125,52 @@ describe('url', () => {
+     ])('getPath - %s', (url) => {
+       expect(getPath(new Request(url))).toBe(new URL(url).pathname)
+     })
++
++    it('getPath - with fragment', () => {
++      let path = getPath(new Request('https://example.com/users/#user-list'))
++      expect(path).toBe('/users/')
++      path = getPath(new Request('https://example.com/users/1#profile-section'))
++      expect(path).toBe('/users/1')
++      path = getPath(new Request('https://example.com/hello#section'))
++      expect(path).toBe('/hello')
++      path = getPath(new Request('https://example.com/#top'))
++      expect(path).toBe('/')
++    })
++
++    it('getPath - with query and fragment', () => {
++      let path = getPath(new Request('https://example.com/hello?name=foo#section'))
++      expect(path).toBe('/hello')
++      path = getPath(new Request('https://example.com/search?q=test#results'))
++      expect(path).toBe('/search')
++    })
++
++    it('getPath - with percent encoding only (no query or fragment)', () => {
++      const path = getPath(new Request('https://example.com/hello%20world'))
++      expect(path).toBe('/hello world')
++    })
++
++    it('getPath - with percent encoding and fragment', () => {
++      let path = getPath(new Request('https://example.com/hello%20world#section'))
++      expect(path).toBe('/hello world')
++      path = getPath(new Request('https://example.com/%E7%82%8E#top'))
++      expect(path).toBe('/炎')
++    })
++
++    it('getPath - with percent encoding and fragment containing query-like chars', () => {
++      const path = getPath(new Request('https://example.com/hello%20world#section?foo=bar'))
++      expect(path).toBe('/hello world')
++    })
++
++    it('getPath - with encoded hash (%23) in path and real fragment', () => {
++      // %23 is encoded '#' - decodeURI preserves reserved characters, so %23 stays as %23
++      let path = getPath(new Request('https://example.com/path%23test#real-fragment'))
++      expect(path).toBe('/path%23test')
++      path = getPath(new Request('https://example.com/foo%23bar%23baz#section'))
++      expect(path).toBe('/foo%23bar%23baz')
++      // Only encoded hash, no real fragment
++      path = getPath(new Request('https://example.com/issue%23123'))
++      expect(path).toBe('/issue%23123')
++    })
+   })
+ 
+   describe('getQueryStrings', () => {
+diff --git a/src/utils/url.ts b/src/utils/url.ts
+index 82350aa9..6f39eaed 100644
+--- a/src/utils/url.ts
++++ b/src/utils/url.ts
+@@ -111,13 +111,22 @@ export const getPath = (request: Request): string => {
+     const charCode = url.charCodeAt(i)
+     if (charCode === 37) {
+       // '%'
+-      // If the path contains percent encoding, use `indexOf()` to find '?' and return the result immediately.
++      // If the path contains percent encoding, use `indexOf()` to find '?' or '#' and return the result immediately.
+       // Although this is a performance disadvantage, it is acceptable since we prefer cases that do not include percent encoding.
+       const queryIndex = url.indexOf('?', i)
+-      const path = url.slice(start, queryIndex === -1 ? undefined : queryIndex)
++      const hashIndex = url.indexOf('#', i)
++      const end =
++        queryIndex === -1
++          ? hashIndex === -1
++            ? undefined
++            : hashIndex
++          : hashIndex === -1
++            ? queryIndex
++            : Math.min(queryIndex, hashIndex)
++      const path = url.slice(start, end)
+       return tryDecodeURI(path.includes('%25') ? path.replace(/%25/g, '%2525') : path)
+-    } else if (charCode === 63) {
+-      // '?'
++    } else if (charCode === 63 || charCode === 35) {
++      // '?' or '#'
+       break
+     }
+   }

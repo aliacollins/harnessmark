@@ -1,0 +1,130 @@
+diff --git a/src/middleware/compress/index.test.ts b/src/middleware/compress/index.test.ts
+index 806aceca..5e096bee 100644
+--- a/src/middleware/compress/index.test.ts
++++ b/src/middleware/compress/index.test.ts
+@@ -259,6 +259,93 @@ describe('Compress Middleware', () => {
+     })
+   })
+ 
++  describe('Vary Header', () => {
++    const app = new Hono()
++    app.use('*', compress())
++    app.get('/no-vary', (c) => {
++      c.header('Content-Type', 'text/plain')
++      c.header('Content-Length', '1024')
++      return c.text('a'.repeat(1024))
++    })
++    app.get('/existing-vary', (c) => {
++      c.header('Content-Type', 'text/plain')
++      c.header('Content-Length', '1024')
++      c.header('Vary', 'Cookie')
++      return c.text('a'.repeat(1024))
++    })
++    app.get('/already-accept-encoding', (c) => {
++      c.header('Content-Type', 'text/plain')
++      c.header('Content-Length', '1024')
++      c.header('Vary', 'Accept-Encoding')
++      return c.text('a'.repeat(1024))
++    })
++    app.get('/wildcard-vary', (c) => {
++      c.header('Content-Type', 'text/plain')
++      c.header('Content-Length', '1024')
++      c.header('Vary', '*')
++      return c.text('a'.repeat(1024))
++    })
++    app.get('/not-compressible', (c) => {
++      c.header('Content-Type', 'image/png')
++      c.header('Content-Length', '1024')
++      return c.body('a'.repeat(1024))
++    })
++
++    it('should set Vary: Accept-Encoding when compressing', async () => {
++      const res = await app.request('/no-vary', {
++        headers: { 'Accept-Encoding': 'gzip' },
++      })
++      expect(res.headers.get('Content-Encoding')).toBe('gzip')
++      expect(res.headers.get('Vary')).toBe('Accept-Encoding')
++    })
++
++    it('should append Accept-Encoding to an existing Vary header', async () => {
++      const res = await app.request('/existing-vary', {
++        headers: { 'Accept-Encoding': 'gzip' },
++      })
++      expect(res.headers.get('Content-Encoding')).toBe('gzip')
++      expect(res.headers.get('Vary')).toBe('Cookie, Accept-Encoding')
++    })
++
++    it('should not duplicate Accept-Encoding when Vary already lists it', async () => {
++      const res = await app.request('/already-accept-encoding', {
++        headers: { 'Accept-Encoding': 'gzip' },
++      })
++      expect(res.headers.get('Content-Encoding')).toBe('gzip')
++      expect(res.headers.get('Vary')).toBe('Accept-Encoding')
++    })
++
++    it('should leave Vary: * unchanged', async () => {
++      const res = await app.request('/wildcard-vary', {
++        headers: { 'Accept-Encoding': 'gzip' },
++      })
++      expect(res.headers.get('Content-Encoding')).toBe('gzip')
++      expect(res.headers.get('Vary')).toBe('*')
++    })
++
++    it('should set Vary on an identity response when Accept-Encoding is absent', async () => {
++      const res = await app.request('/no-vary')
++      expect(res.headers.get('Content-Encoding')).toBeNull()
++      expect(res.headers.get('Vary')).toBe('Accept-Encoding')
++    })
++
++    it('should set Vary on an identity response when no offered encoding is accepted', async () => {
++      const res = await app.request('/no-vary', {
++        headers: { 'Accept-Encoding': 'br' },
++      })
++      expect(res.headers.get('Content-Encoding')).toBeNull()
++      expect(res.headers.get('Vary')).toBe('Accept-Encoding')
++    })
++
++    it('should not add a Vary header when the response is not eligible for compression', async () => {
++      const res = await app.request('/not-compressible', {
++        headers: { 'Accept-Encoding': 'gzip' },
++      })
++      expect(res.headers.get('Content-Encoding')).toBeNull()
++      expect(res.headers.get('Vary')).toBeNull()
++    })
++  })
++
+   describe('contentTypeFilter', () => {
+     describe('RegExp', () => {
+       const app = new Hono()
+diff --git a/src/middleware/compress/index.ts b/src/middleware/compress/index.ts
+index 028e97d8..691bb4fb 100644
+--- a/src/middleware/compress/index.ts
++++ b/src/middleware/compress/index.ts
+@@ -43,6 +43,8 @@ const selectEncoding = (
+   return best?.encoding
+ }
+ 
++const varyAcceptEncodingRegExp = /(?:^|,)\s*accept-encoding\s*(?:,|$)/i
++
+ /**
+  * Compress Middleware for Hono.
+  *
+@@ -101,6 +103,18 @@ export const compress = (options?: CompressionOptions): MiddlewareHandler => {
+       return
+     }
+ 
++    // From here on the representation is selected from the request's Accept-Encoding,
++    // so caches must key on that header. This is done before the negotiation result is
++    // known, because an identity response served for a missing or unsupported
++    // Accept-Encoding is just as much a negotiated representation: RFC 9110 lists
++    // Accept-Encoding "or lack thereof" as a determining factor. Without this, a shared
++    // cache could reuse the identity response for a client that does accept gzip.
++    // https://www.rfc-editor.org/rfc/rfc9110#field.vary
++    const current = ctx.res.headers.get('Vary')
++    if (current !== '*' && !(current && varyAcceptEncodingRegExp.test(current))) {
++      ctx.header('Vary', current ? `${current}, Accept-Encoding` : 'Accept-Encoding')
++    }
++
+     const accepted = ctx.req.header('Accept-Encoding')
+     const encoding = selectEncoding(accepted, candidates)
+     if (!encoding || !ctx.res.body) {

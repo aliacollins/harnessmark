@@ -1,0 +1,392 @@
+diff --git a/src/utils/jwt/jwt.test.ts b/src/utils/jwt/jwt.test.ts
+index e6b297d0..18dd82d3 100644
+--- a/src/utils/jwt/jwt.test.ts
++++ b/src/utils/jwt/jwt.test.ts
+@@ -7,6 +7,8 @@ import * as JWT from './jwt'
+ import { verifyWithJwks } from './jwt'
+ import {
+   JwtAlgorithmNotImplemented,
++  JwtPayloadRequiresAud,
++  JwtTokenAudience,
+   JwtTokenExpired,
+   JwtTokenInvalid,
+   JwtTokenIssuedAt,
+@@ -226,6 +228,265 @@ describe('JWT', () => {
+     expect(authorized?.iss).toEqual('hello')
+   })
+ 
++  it('JwtPayloadRequireAud', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiaWF0IjoxfQ.3Yd0dDicCKA6zu_G6AvxMX_fRH5wMz9gMCedOsYNAGc'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: 'correct-audience',
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toEqual(new JwtPayloadRequiresAud({ iss: 'https://issuer.example', iat: 1 }))
++    expect(authorized).toBeUndefined()
++  })
++
++  it('JwtTokenAudience(correct string - string)', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjoiY29ycmVjdC1hdWRpZW5jZSIsImlhdCI6MX0.z8T6szX-k66de4xB9OFbpWAOfx0RTqKSUPBcdpSY5nk'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: 'correct-audience',
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toBeUndefined()
++    expect(authorized?.aud).toEqual('correct-audience')
++  })
++
++  it('JwtTokenAudience(correct string - string[])', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjoiY29ycmVjdC1hdWRpZW5jZSIsImlhdCI6MX0.z8T6szX-k66de4xB9OFbpWAOfx0RTqKSUPBcdpSY5nk'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: ['correct-audience', 'other-audience'],
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toBeUndefined()
++    expect(authorized?.aud).toEqual('correct-audience')
++  })
++
++  it('JwtTokenAudience(correct string - RegExp)', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjoiY29ycmVjdC1hdWRpZW5jZSIsImlhdCI6MX0.z8T6szX-k66de4xB9OFbpWAOfx0RTqKSUPBcdpSY5nk'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: /^correct-audience$/,
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toBeUndefined()
++    expect(authorized?.aud).toEqual('correct-audience')
++  })
++
++  it('JwtTokenAudience(correct string[] - string)', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjpbImNvcnJlY3QtYXVkaWVuY2UiLCJvdGhlci1hdWRpZW5jZSJdLCJpYXQiOjF9.l73pNR5zMMAyuoN3f32hKtRJkoxZNzgTcVBZ2A2EsJY'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: 'correct-audience',
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toBeUndefined()
++    expect(authorized?.aud).toEqual(['correct-audience', 'other-audience'])
++  })
++
++  it('JwtTokenAudience(correct string[] - string[])', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjpbImNvcnJlY3QtYXVkaWVuY2UiLCJvdGhlci1hdWRpZW5jZSJdLCJpYXQiOjF9.l73pNR5zMMAyuoN3f32hKtRJkoxZNzgTcVBZ2A2EsJY'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: ['correct-audience', 'test'],
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toBeUndefined()
++    expect(authorized?.aud).toEqual(['correct-audience', 'other-audience'])
++  })
++
++  it('JwtTokenAudience(correct string[] - RegExp)', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjpbImNvcnJlY3QtYXVkaWVuY2UiLCJvdGhlci1hdWRpZW5jZSJdLCJpYXQiOjF9.l73pNR5zMMAyuoN3f32hKtRJkoxZNzgTcVBZ2A2EsJY'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: /^correct-audience$/,
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toBeUndefined()
++    expect(authorized?.aud).toEqual(['correct-audience', 'other-audience'])
++  })
++
++  it('JwtTokenAudience(wrong string - string)', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjoid3JvbmctYXVkaWVuY2UiLCJpYXQiOjF9.2vTYLiYL5r6qN-iRQ0VSfXh4ioLFtNzo0qc-OoPZmow'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: 'correct-audience',
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toEqual(new JwtTokenAudience('correct-audience', 'wrong-audience'))
++    expect(authorized).toBeUndefined()
++  })
++
++  it('JwtTokenAudience(wrong string - string[])', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjoid3JvbmctYXVkaWVuY2UiLCJpYXQiOjF9.2vTYLiYL5r6qN-iRQ0VSfXh4ioLFtNzo0qc-OoPZmow'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: ['correct-audience', 'other-audience'],
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toEqual(
++      new JwtTokenAudience(['correct-audience', 'other-audience'], 'wrong-audience')
++    )
++    expect(authorized).toBeUndefined()
++  })
++
++  it('JwtTokenAudience(wrong string - RegExp)', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjoid3JvbmctYXVkaWVuY2UiLCJpYXQiOjF9.2vTYLiYL5r6qN-iRQ0VSfXh4ioLFtNzo0qc-OoPZmow'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: /^correct-audience$/,
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toEqual(new JwtTokenAudience(/^correct-audience$/, 'wrong-audience'))
++    expect(authorized).toBeUndefined()
++  })
++
++  it('JwtTokenAudience(wrong string[] - string)', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjpbIndyb25nLWF1ZGllbmNlIiwib3RoZXItYXVkaWVuY2UiXSwiaWF0IjoxfQ.YTAM1xtKP4AeEeQSFQ81rcJM1leW_uDayQcTE6LxoP0'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: 'correct-audience',
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toEqual(
++      new JwtTokenAudience('correct-audience', ['wrong-audience', 'other-audience'])
++    )
++    expect(authorized).toBeUndefined()
++  })
++
++  it('JwtTokenAudience(wrong string[] - string[])', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjpbIndyb25nLWF1ZGllbmNlIiwib3RoZXItYXVkaWVuY2UiXSwiaWF0IjoxfQ.YTAM1xtKP4AeEeQSFQ81rcJM1leW_uDayQcTE6LxoP0'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: ['correct-audience', 'test'],
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toEqual(
++      new JwtTokenAudience(['correct-audience', 'test'], ['wrong-audience', 'other-audience'])
++    )
++    expect(authorized).toBeUndefined()
++  })
++
++  it('JwtTokenAudience(wrong string[] - RegExp)', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjpbIndyb25nLWF1ZGllbmNlIiwib3RoZXItYXVkaWVuY2UiXSwiaWF0IjoxfQ.YTAM1xtKP4AeEeQSFQ81rcJM1leW_uDayQcTE6LxoP0'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++        aud: /^correct-audience$/,
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toEqual(
++      new JwtTokenAudience(/^correct-audience$/, ['wrong-audience', 'other-audience'])
++    )
++    expect(authorized).toBeUndefined()
++  })
++
++  it('JwtTokenAudience (no aud option and wrong aud in payload)', async () => {
++    const tok =
++      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYXVkIjoid3JvbmctYXVkaWVuY2UiLCJpYXQiOjF9.2vTYLiYL5r6qN-iRQ0VSfXh4ioLFtNzo0qc-OoPZmow'
++    const secret = 'a-secret'
++    let err
++    let authorized
++    try {
++      authorized = await JWT.verify(tok, secret, {
++        alg: AlgorithmTypes.HS256,
++      })
++    } catch (e) {
++      err = e
++    }
++    expect(err).toBeUndefined()
++    expect(authorized?.aud).toEqual('wrong-audience')
++  })
++
+   it('HS256 sign & verify & decode', async () => {
+     const payload = { message: 'hello world' }
+     const secret = 'a-secret'
+diff --git a/src/utils/jwt/jwt.ts b/src/utils/jwt/jwt.ts
+index b5381e71..1206817c 100644
+--- a/src/utils/jwt/jwt.ts
++++ b/src/utils/jwt/jwt.ts
+@@ -12,6 +12,8 @@ import type { HonoJsonWebKey, SignatureKey } from './jws'
+ import {
+   JwtHeaderInvalid,
+   JwtHeaderRequiresKid,
++  JwtPayloadRequiresAud,
++  JwtTokenAudience,
+   JwtTokenExpired,
+   JwtTokenInvalid,
+   JwtTokenIssuedAt,
+@@ -78,6 +80,8 @@ export type VerifyOptions = {
+   exp?: boolean
+   /** Verify the `iat` claim (default: `true`) */
+   iat?: boolean
++  /** Acceptable audience(s) for the token */
++  aud?: string | string[] | RegExp
+ }
+ 
+ export type VerifyOptionsWithAlg = {
+@@ -90,6 +94,7 @@ type StrictVerifyOptions = {
+   nbf: boolean
+   exp: boolean
+   iat: boolean
++  aud?: string | string[] | RegExp
+ }
+ 
+ type StrictVerifyOptionsWithAlg = {
+@@ -108,6 +113,7 @@ export const verify = async (
+     nbf: optsIn.nbf ?? true,
+     exp: optsIn.exp ?? true,
+     iat: optsIn.iat ?? true,
++    aud: optsIn.aud,
+   }
+ 
+   const tokenParts = token.split('.')
+@@ -141,6 +147,33 @@ export const verify = async (
+     }
+   }
+ 
++  if (opts.aud) {
++    if (!payload.aud) {
++      throw new JwtPayloadRequiresAud(payload)
++    }
++  }
++
++  if (payload.aud) {
++    const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud]
++    const matched = audiences.some((aud): boolean => {
++      if (opts.aud instanceof RegExp && opts.aud.test(aud)) {
++        return true
++      } else if (typeof opts.aud === 'string') {
++        if (aud === opts.aud) {
++          return true
++        }
++      } else if (Array.isArray(opts.aud)) {
++        if (opts.aud.includes(aud)) {
++          return true
++        }
++      }
++      return false
++    })
++    if (opts.aud && !matched) {
++      throw new JwtTokenAudience(opts.aud, payload.aud)
++    }
++  }
++
+   const headerPayload = token.substring(0, token.lastIndexOf('.'))
+   const verified = await verifying(
+     publicKey,
+diff --git a/src/utils/jwt/types.ts b/src/utils/jwt/types.ts
+index 67e0bb37..538726e5 100644
+--- a/src/utils/jwt/types.ts
++++ b/src/utils/jwt/types.ts
+@@ -68,6 +68,24 @@ export class JwtTokenSignatureMismatched extends Error {
+   }
+ }
+ 
++export class JwtPayloadRequiresAud extends Error {
++  constructor(payload: object) {
++    super(`required "aud" in jwt payload: ${JSON.stringify(payload)}`)
++    this.name = 'JwtPayloadRequiresAud'
++  }
++}
++
++export class JwtTokenAudience extends Error {
++  constructor(expected: string | string[] | RegExp, aud: string | string[]) {
++    super(
++      `expected audience "${
++        Array.isArray(expected) ? expected.join(', ') : expected
++      }", got "${aud}"`
++    )
++    this.name = 'JwtTokenAudience'
++  }
++}
++
+ export enum CryptoKeyUsage {
+   Encrypt = 'encrypt',
+   Decrypt = 'decrypt',
+@@ -100,6 +118,11 @@ export type JWTPayload = {
+    * The token is checked to ensure it has been issued by a trusted issuer.
+    */
+   iss?: string
++
++  /**
++   * The token is checked to ensure it is intended for a specific audience.
++   */
++  aud?: string | string[]
+ }
+ 
+ export type { HonoJsonWebKey } from './jws'

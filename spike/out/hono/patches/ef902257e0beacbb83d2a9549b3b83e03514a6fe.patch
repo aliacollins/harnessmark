@@ -1,0 +1,78 @@
+diff --git a/src/utils/body.test.ts b/src/utils/body.test.ts
+index 0b1f8a0b..e64729b3 100644
+--- a/src/utils/body.test.ts
++++ b/src/utils/body.test.ts
+@@ -160,6 +160,58 @@ describe('Parse Body Util', () => {
+     })
+   })
+ 
++  it('should skip keys starting with __proto__. to prevent prototype pollution', async () => {
++    const data = new FormData()
++    data.append('__proto__.polluted', 'malicious')
++
++    const req = createRequest(FORM_URL, 'POST', data)
++
++    expect(await parseBody(req, { dot: true })).toEqual({})
++  })
++
++  it('should skip keys containing nested __proto__. to prevent prototype pollution', async () => {
++    const data = new FormData()
++    data.append('a.__proto__.polluted', 'malicious')
++
++    const req = createRequest(FORM_URL, 'POST', data)
++
++    expect(await parseBody(req, { dot: true })).toEqual({})
++  })
++
++  it('should not pollute Object.prototype via __proto__ keys', async () => {
++    const data = new FormData()
++    data.append('__proto__.injected', 'yes')
++    data.append('a.__proto__.injected', 'yes')
++
++    const req = createRequest(FORM_URL, 'POST', data)
++
++    await parseBody(req, { dot: true })
++
++    expect(({} as Record<string, unknown>).injected).toBeUndefined()
++  })
++
++  it('should parse key ending with __proto__ as a normal value', async () => {
++    const data = new FormData()
++    data.append('a.__proto__', 'value')
++
++    const req = createRequest(FORM_URL, 'POST', data)
++
++    const result = await parseBody(req, { dot: true })
++    expect(result).toHaveProperty('a')
++    expect(Object.getOwnPropertyDescriptor((result as Record<string, Record<string, string>>).a, '__proto__')?.value).toBe('value')
++  })
++
++  it('should parse key containing __proto__ as a substring normally', async () => {
++    const data = new FormData()
++    data.append('data__proto__key.value', 'test')
++
++    const req = createRequest(FORM_URL, 'POST', data)
++
++    expect(await parseBody(req, { dot: true })).toEqual({
++      data__proto__key: { value: 'test' },
++    })
++  })
++
+   it('should parse nested values if `dot` option is true', async () => {
+     const data = new FormData()
+     data.append('obj.key1', 'value1')
+diff --git a/src/utils/body.ts b/src/utils/body.ts
+index 6338805a..b7fdf1b3 100644
+--- a/src/utils/body.ts
++++ b/src/utils/body.ts
+@@ -208,6 +208,10 @@ const handleParsingNestedValues = (
+   key: string,
+   value: BodyDataValue<Partial<ParseBodyOptions>>
+ ): void => {
++  if (/(?:^|\.)__proto__\./.test(key)) {
++    return
++  }
++
+   let nestedForm = form
+   const keys = key.split('.')
+ 

@@ -1,0 +1,95 @@
+diff --git a/src/hono.test.ts b/src/hono.test.ts
+index 93fab95f..53a3efa6 100644
+--- a/src/hono.test.ts
++++ b/src/hono.test.ts
+@@ -3658,3 +3658,17 @@ describe('app.basePath() with the internal #clone()', () => {
+     expect(await res.text()).toBe('Custom error "API Test error"')
+   })
+ })
++
++describe('Catch-all route with empty segment', () => {
++  it('Should return empty string for empty catch-all param', async () => {
++    const app = new Hono()
++    app.get('/:remaining{.*}', (c) => {
++      const remaining = c.req.param('remaining')
++      return c.json({ type: typeof remaining, value: remaining })
++    })
++    const res = await app.request('http://localhost/')
++    expect(res.status).toBe(200)
++    const json = await res.json()
++    expect(json).toEqual({ type: 'string', value: '' })
++  })
++})
+diff --git a/src/request.test.ts b/src/request.test.ts
+index a278bead..7a063deb 100644
+--- a/src/request.test.ts
++++ b/src/request.test.ts
+@@ -38,6 +38,21 @@ describe('Query', () => {
+ })
+ 
+ describe('Param', () => {
++  test('req.param() should return empty string for zero-length match', () => {
++    // Simulate a route like '/:remaining{.*}' matching '/'
++    const rawRequest = new Request('http://localhost/')
++    const req = new HonoRequest<'/:remaining{.*}'>(rawRequest, '/', [
++      [[[undefined, {} as RouterRoute], { remaining: 0 }]],
++      [''], // ParamStash with empty string for remaining
++    ])
++
++    // Single param access should be empty string, not undefined
++    expect(req.param('remaining')).toBe('')
++
++    // All params should include key with empty string value
++    const all = req.param()
++    expect(all).toEqual({ remaining: '' })
++  })
+   test('req.param() with ParamStash', () => {
+     const rawRequest = new Request('http://localhost?page=2&tag=A&tag=B')
+     const req = new HonoRequest<'/:id/:name'>(rawRequest, '/123/key', [
+@@ -72,6 +87,24 @@ describe('Param', () => {
+     expect(req.param('id')).toBe('456')
+     expect(req.param('name')).toBe('key')
+   })
++
++  test('req.param() returns empty string for missing param', () => {
++    const rawRequest = new Request('http://localhost')
++    const req = new HonoRequest<'/:remaining'>(rawRequest, '/', [
++      [[[undefined, {} as RouterRoute], { remaining: 0 }]],
++      [''],
++    ])
++    expect(req.param('remaining')).toBe('')
++  })
++
++  test('req.param() without argument returns object with empty string for missing param', () => {
++    const rawRequest = new Request('http://localhost')
++    const req = new HonoRequest<'/:remaining'>(rawRequest, '/', [
++      [[[undefined, {} as RouterRoute], { remaining: 0 }]],
++      [''],
++    ])
++    expect(req.param()).toEqual({ remaining: '' })
++  })
+ })
+ 
+ describe('matchedRoutes', () => {
+diff --git a/src/request.ts b/src/request.ts
+index 5dc034d3..bd78163a 100644
+--- a/src/request.ts
++++ b/src/request.ts
+@@ -98,7 +98,7 @@ export class HonoRequest<P extends string = '/', I extends Input['out'] = {}> {
+   #getDecodedParam(key: string): string | undefined {
+     const paramKey = this.#matchResult[0][this.routeIndex][1][key]
+     const param = this.#getParamValue(paramKey)
+-    return param ? (/\%/.test(param) ? tryDecodeURIComponent(param) : param) : undefined
++    return param && /\%/.test(param) ? tryDecodeURIComponent(param) : param
+   }
+ 
+   #getAllDecodedParams(): Record<string, string> {
+@@ -107,7 +107,7 @@ export class HonoRequest<P extends string = '/', I extends Input['out'] = {}> {
+     const keys = Object.keys(this.#matchResult[0][this.routeIndex][1])
+     for (const key of keys) {
+       const value = this.#getParamValue(this.#matchResult[0][this.routeIndex][1][key])
+-      if (value && typeof value === 'string') {
++      if (value !== undefined) {
+         decoded[key] = /\%/.test(value) ? tryDecodeURIComponent(value) : value
+       }
+     }

@@ -1,0 +1,118 @@
+diff --git a/src/middleware/trailing-slash/index.test.ts b/src/middleware/trailing-slash/index.test.ts
+index e5e7ba7d..a6d255c5 100644
+--- a/src/middleware/trailing-slash/index.test.ts
++++ b/src/middleware/trailing-slash/index.test.ts
+@@ -255,6 +255,63 @@ describe('Resolve trailing slash', () => {
+     })
+   })
+ 
++  describe('appendTrailingSlash middleware with skip option', () => {
++    const hasExtension = (path: string): boolean => /\.\w+$/.test(path.split('/').at(-1) ?? '')
++    const app = new Hono({ strict: true })
++    app.use('*', appendTrailingSlash({ skip: hasExtension }))
++
++    app.get('/page/', (c) => c.text('ok'))
++
++    it('should not redirect paths with file extensions', async () => {
++      const resp = await app.request('/foo.html')
++
++      expect(resp.status).toBe(404)
++    })
++
++    it('should redirect paths without file extensions', async () => {
++      const resp = await app.request('/page')
++
++      expect(resp.status).toBe(301)
++      const loc = new URL(resp.headers.get('location')!)
++      expect(loc.pathname).toBe('/page/')
++    })
++  })
++
++  describe('appendTrailingSlash middleware with alwaysRedirect and skip options', () => {
++    const hasExtension = (path: string): boolean => /\.\w+$/.test(path.split('/').at(-1) ?? '')
++    const app = new Hono()
++    app.use('*', appendTrailingSlash({ alwaysRedirect: true, skip: hasExtension }))
++
++    app.get('/', (c) => c.text('ok'))
++    app.get('/my-path/*', (c) => c.text('wildcard'))
++
++    it('should redirect paths without extensions', async () => {
++      const resp = await app.request('/my-path/something')
++      const loc = new URL(resp.headers.get('location')!)
++
++      expect(resp.status).toBe(301)
++      expect(loc.pathname).toBe('/my-path/something/')
++    })
++
++    it('should not redirect paths with file extensions', async () => {
++      const resp = await app.request('/my-path/style.css')
++
++      expect(resp.status).toBe(200)
++    })
++
++    it('should not redirect paths with extensions like .html', async () => {
++      const resp = await app.request('/my-path/page.html')
++
++      expect(resp.status).toBe(200)
++    })
++
++    it('should handle HEAD request for paths with extensions', async () => {
++      const resp = await app.request('/my-path/script.js', { method: 'HEAD' })
++
++      expect(resp.status).toBe(200)
++    })
++  })
++
+   describe('appendTrailingSlash middleware with alwaysRedirect option', () => {
+     const app = new Hono()
+     app.use('*', appendTrailingSlash({ alwaysRedirect: true }))
+diff --git a/src/middleware/trailing-slash/index.ts b/src/middleware/trailing-slash/index.ts
+index 683d17bf..8f382161 100644
+--- a/src/middleware/trailing-slash/index.ts
++++ b/src/middleware/trailing-slash/index.ts
+@@ -82,6 +82,22 @@ type AppendTrailingSlashOptions = {
+    * @default false
+    */
+   alwaysRedirect?: boolean
++  /**
++   * A function that determines whether to skip the redirect for a given path.
++   * If the function returns `true`, the redirect will be skipped.
++   * @param path - The request path
++   * @returns `true` to skip the redirect
++   *
++   * @example
++   * ```ts
++   * // Skip redirect for paths with file extensions
++   * app.use(appendTrailingSlash({
++   *   alwaysRedirect: true,
++   *   skip: (path) => /\.\w+$/.test(path),
++   * }))
++   * ```
++   */
++  skip?: (path: string) => boolean
+ }
+ 
+ /**
+@@ -112,7 +128,11 @@ type AppendTrailingSlashOptions = {
+ export const appendTrailingSlash = (options?: AppendTrailingSlashOptions): MiddlewareHandler => {
+   return async function appendTrailingSlash(c, next) {
+     if (options?.alwaysRedirect) {
+-      if ((c.req.method === 'GET' || c.req.method === 'HEAD') && c.req.path.at(-1) !== '/') {
++      if (
++        (c.req.method === 'GET' || c.req.method === 'HEAD') &&
++        c.req.path.at(-1) !== '/' &&
++        !options.skip?.(c.req.path)
++      ) {
+         const url = new URL(c.req.url)
+         url.pathname += '/'
+ 
+@@ -126,7 +146,8 @@ export const appendTrailingSlash = (options?: AppendTrailingSlashOptions): Middl
+       !options?.alwaysRedirect &&
+       c.res.status === 404 &&
+       (c.req.method === 'GET' || c.req.method === 'HEAD') &&
+-      c.req.path.at(-1) !== '/'
++      c.req.path.at(-1) !== '/' &&
++      !options?.skip?.(c.req.path)
+     ) {
+       const url = new URL(c.req.url)
+       url.pathname += '/'

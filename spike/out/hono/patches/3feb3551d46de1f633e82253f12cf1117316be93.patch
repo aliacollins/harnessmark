@@ -1,0 +1,432 @@
+diff --git a/src/jsx/base.ts b/src/jsx/base.ts
+index 4e4b1967..bad6848b 100644
+--- a/src/jsx/base.ts
++++ b/src/jsx/base.ts
+@@ -25,8 +25,13 @@ import {
+ 
+ // eslint-disable-next-line @typescript-eslint/no-explicit-any
+ export type Props = Record<string, any>
++type FunctionComponentResult =
++  | HtmlEscapedString
++  | Child[]
++  | Promise<HtmlEscapedString | Child[]>
++  | null
+ export type FC<P = Props> = {
+-  (props: P): HtmlEscapedString | Promise<HtmlEscapedString> | null
++  (props: P): FunctionComponentResult
+   defaultProps?: Partial<P> | undefined
+   displayName?: string | undefined
+ }
+@@ -35,6 +40,7 @@ export type DOMAttributes = HonoJSX.HTMLAttributes
+ // eslint-disable-next-line @typescript-eslint/no-namespace
+ export namespace JSX {
+   export type Element = HtmlEscapedString | Promise<HtmlEscapedString>
++  export type ElementType = string | ((props: never) => FunctionComponentResult)
+   export interface ElementChildrenAttribute {
+     children: Child
+   }
+@@ -105,6 +111,27 @@ export const booleanAttributes = [
+   'selected',
+ ]
+ 
++type SuspendedContext = <T>(callback: () => T) => T
++
++const resolveFunctionComponentResult = (
++  result: Promise<string | JSXNode | Child[]>,
++  suspendedContext?: SuspendedContext
++): Promise<string> =>
++  result.then((resolved) => {
++    if (!Array.isArray(resolved) && !(resolved instanceof JSXNode)) {
++      return resolved
++    }
++    const children = Array.isArray(resolved) ? resolved : [resolved]
++    const render = () => {
++      const buffer: StringBufferWithCallbacks = [''] as StringBufferWithCallbacks
++      childrenToStringToBuffer(children, buffer)
++      return buffer.length === 1
++        ? raw(buffer[0], buffer.callbacks)
++        : stringBufferToString(buffer, buffer.callbacks)
++    }
++    return suspendedContext ? suspendedContext(render) : runWithRenderContext(render)
++  })
++
+ const childrenToStringToBuffer = (children: Child[], buffer: StringBufferWithCallbacks): void => {
+   for (let i = 0, len = children.length; i < len; i++) {
+     const child = children[i]
+@@ -114,11 +141,15 @@ const childrenToStringToBuffer = (children: Child[], buffer: StringBufferWithCal
+       continue
+     } else if (child instanceof JSXNode) {
+       child.toStringToBuffer(buffer)
+-    } else if (
+-      typeof child === 'number' ||
+-      (child as unknown as { isEscaped: boolean }).isEscaped
+-    ) {
++    } else if (typeof child === 'number') {
+       ;(buffer[0] as string) += child
++    } else if ((child as unknown as HtmlEscaped).isEscaped) {
++      ;(buffer[0] as string) += child
++      const callbacks = (child as unknown as HtmlEscapedString).callbacks
++      if (callbacks) {
++        buffer.callbacks ||= []
++        buffer.callbacks.push(...callbacks)
++      }
+     } else if (child instanceof Promise) {
+       buffer.unshift('', child)
+     } else {
+@@ -143,7 +174,6 @@ export class JSXNode implements HtmlEscaped {
+   key?: string
+   children: Child[]
+   isEscaped: true = true as const
+-  suspendedContext?: <T>(callback: () => T) => T
+   constructor(tag: string | Function, props: Props, children: Child[]) {
+     if (typeof tag !== 'function' && !isValidTagName(tag)) {
+       throw new Error(`Invalid JSX tag name: ${tag}`)
+@@ -173,7 +203,7 @@ export class JSXNode implements HtmlEscaped {
+           : buffer[0]
+         : stringBufferToString(buffer, buffer.callbacks)
+     }
+-    return this.suspendedContext ? this.suspendedContext(render) : runWithRenderContext(render)
++    return runWithRenderContext(render)
+   }
+ 
+   toStringToBuffer(buffer: StringBufferWithCallbacks): void {
+@@ -267,22 +297,15 @@ class JSXFunctionNode extends JSXNode {
+       return
+     } else if (res instanceof Promise) {
+       if (globalContexts.length === 0) {
+-        buffer.unshift('', res)
++        buffer.unshift('', resolveFunctionComponentResult(res))
+       } else {
+         // save the current context state for resuming the suspended subtree
+-        const suspendedContext = captureRenderContext()
+-        buffer.unshift(
+-          '',
+-          res.then((childRes) => {
+-            if (childRes instanceof JSXNode) {
+-              childRes.suspendedContext = suspendedContext
+-            }
+-            return childRes
+-          })
+-        )
++        buffer.unshift('', resolveFunctionComponentResult(res, captureRenderContext()))
+       }
+     } else if (res instanceof JSXNode) {
+       res.toStringToBuffer(buffer)
++    } else if (Array.isArray(res)) {
++      childrenToStringToBuffer(res, buffer)
+     } else if (typeof res === 'number' || (res as HtmlEscaped).isEscaped) {
+       buffer[0] += res
+       if (res.callbacks) {
+diff --git a/src/jsx/dom/index.test.tsx b/src/jsx/dom/index.test.tsx
+index 1b9e2f20..09f38641 100644
+--- a/src/jsx/dom/index.test.tsx
++++ b/src/jsx/dom/index.test.tsx
+@@ -374,6 +374,30 @@ describe('DOM', () => {
+       expect(Child).toBeCalledTimes(3)
+     })
+ 
++    it('returning an array', async () => {
++      const App = () => {
++        const [count, setCount] = useState(0)
++        return [<div>{count}</div>, <button onClick={() => setCount(count + 1)}>+</button>]
++      }
++      render(<App />, root)
++      expect(root.innerHTML).toBe('<div>0</div><button>+</button>')
++      root.querySelector('button')?.click()
++      await Promise.resolve()
++      expect(root.innerHTML).toBe('<div>1</div><button>+</button>')
++    })
++
++    it('typed as FC returning an array', async () => {
++      const App: FC = () => {
++        const [count, setCount] = useState(0)
++        return [<div>{count}</div>, <button onClick={() => setCount(count + 1)}>+</button>]
++      }
++      render(<App />, root)
++      expect(root.innerHTML).toBe('<div>0</div><button>+</button>')
++      root.querySelector('button')?.click()
++      await Promise.resolve()
++      expect(root.innerHTML).toBe('<div>1</div><button>+</button>')
++    })
++
+     it('multiple children', async () => {
+       const Child = ({ name }: { name: string }) => {
+         const [count, setCount] = useState(0)
+diff --git a/src/jsx/dom/render.ts b/src/jsx/dom/render.ts
+index c9e5f9ba..73a5a832 100644
+--- a/src/jsx/dom/render.ts
++++ b/src/jsx/dom/render.ts
+@@ -284,7 +284,7 @@ const invokeTag = (context: Context, node: NodeObject): Child[] => {
+       }
+     : node.props
+   try {
+-    return [func.call(null, props)]
++    return [func.call(null, props) as Child]
+   } finally {
+     buildDataStack.pop()
+   }
+diff --git a/src/jsx/index.test.tsx b/src/jsx/index.test.tsx
+index d106c161..cdff3a72 100644
+--- a/src/jsx/index.test.tsx
++++ b/src/jsx/index.test.tsx
+@@ -1,6 +1,6 @@
+ /** @jsxImportSource ./ */
+ /* eslint-disable @typescript-eslint/no-explicit-any */
+-import { html } from '../helper/html'
++import { html, raw } from '../helper/html'
+ import { Hono } from '../hono'
+ import { DOM_MEMO } from './constants'
+ import { captureRenderContext } from './context'
+@@ -172,6 +172,68 @@ describe('render to string', () => {
+     expect(template.toString()).toBe('<p><span>a</span><span>b</span></p>')
+   })
+ 
++  it('Component returning an array', () => {
++    const Item = ({ x }: { x: number }) => <span>{x}</span>
++    const Items = () => [0, 1].map((x) => <Item key={x} x={x} />)
++    const template = <Items />
++    expect(template.toString()).toBe('<span>0</span><span>1</span>')
++  })
++
++  it('Component returning a nested array', () => {
++    const Items = () => [['a', 'b'], [<span>c</span>], null]
++    const template = <Items />
++    expect(template.toString()).toBe('ab<span>c</span>')
++  })
++
++  it('Component returning an array preserves escaped string callbacks', () => {
++    const Items = () => [
++      raw('a', [
++        ({ buffer }) => {
++          if (buffer) {
++            buffer[0] += 'b'
++          }
++        },
++      ]),
++    ]
++    expect((<Items />).toString()).toBe('ab')
++  })
++
++  it('Component returning an array escapes strings', async () => {
++    const SyncItems = () => ['<script>alert(1)</script>']
++    const AsyncItems = async () => ['<script>alert(1)</script>']
++    const expected = '&lt;script&gt;alert(1)&lt;/script&gt;'
++
++    expect((<SyncItems />).toString()).toBe(expected)
++    expect((await (<AsyncItems />).toString()).toString()).toBe(expected)
++  })
++
++  it('Component returning an array including async components', async () => {
++    const AsyncItem = async ({ x }: { x: number }) => <span>{x}</span>
++    const Items = () => [0, 1].map((x) => <AsyncItem key={x} x={x} />)
++    const template = <Items />
++    expect((await template.toString()).toString()).toBe('<span>0</span><span>1</span>')
++  })
++
++  it('Component typed as FC returning an array', () => {
++    const Item: FC<{ x: number }> = ({ x }) => <span>{x}</span>
++    const Items: FC = () => [0, 1].map((x) => <Item key={x} x={x} />)
++    const template = <Items />
++    expect(template.toString()).toBe('<span>0</span><span>1</span>')
++  })
++
++  it('Async component returning an array', async () => {
++    const AsyncItems = async () => [<span>a</span>, <span>b</span>]
++    const template = <AsyncItems />
++    expect((await template.toString()).toString()).toBe('<span>a</span><span>b</span>')
++  })
++
++  it('Async component returning an array of async components', async () => {
++    const AsyncItem = async ({ x }: { x: number }) => <span>{x}</span>
++    const AsyncItems = async () => [<AsyncItem key={0} x={0} />, <AsyncItem key={1} x={1} />]
++    const template = <AsyncItems />
++    expect((await template.toString()).toString()).toBe('<span>0</span><span>1</span>')
++  })
++
+   it('Empty elements are rended without closing tag', () => {
+     const template = <input />
+     expect(template.toString()).toBe('<input/>')
+@@ -1252,6 +1314,38 @@ d.replaceWith(c.content)
+       expect((await template.toString()).toString()).toBe('<span>dark</span>')
+     })
+ 
++    it('returning an array', async () => {
++      const ArrayConsumer = async () => {
++        await new Promise((resolve) => setTimeout(resolve, 10))
++        return [<span>{useContext(ThemeContext)}</span>, <span>x</span>]
++      }
++      const template = (
++        <ThemeContext.Provider value='dark'>
++          <ArrayConsumer />
++        </ThemeContext.Provider>
++      )
++      expect((await template.toString()).toString()).toBe('<span>dark</span><span>x</span>')
++    })
++
++    it('isolates a shared async result between providers', async () => {
++      const sharedResult = Promise.resolve(<Consumer />)
++      const SharedConsumer = () => sharedResult
++      const [dark, black] = await Promise.all([
++        (
++          <ThemeContext.Provider value='dark'>
++            <SharedConsumer />
++          </ThemeContext.Provider>
++        ).toString(),
++        (
++          <ThemeContext.Provider value='black'>
++            <SharedConsumer />
++          </ThemeContext.Provider>
++        ).toString(),
++      ])
++      expect(dark.toString()).toBe('<span>dark</span>')
++      expect(black.toString()).toBe('<span>black</span>')
++    })
++
+     it('nested', async () => {
+       const template = (
+         <ThemeContext.Provider value='dark'>
+diff --git a/src/jsx/intrinsic-element/components.test.tsx b/src/jsx/intrinsic-element/components.test.tsx
+index 7ab40fa1..896c9add 100644
+--- a/src/jsx/intrinsic-element/components.test.tsx
++++ b/src/jsx/intrinsic-element/components.test.tsx
+@@ -1,5 +1,6 @@
+ /** @jsxImportSource ../ */
+ import { useActionState } from '../'
++import { HtmlEscapedCallbackPhase, resolveCallback } from '../../utils/html'
+ 
+ describe('intrinsic element', () => {
+   describe('document metadata', () => {
+@@ -18,6 +19,23 @@ describe('intrinsic element', () => {
+           '<html><head><title>Hello</title></head><body><h1>World</h1></body></html>'
+         )
+       })
++
++      it('should hoist a title from an async component array', async () => {
++        const Metadata = async () => [<title>Hello</title>]
++        const template = (
++          <html>
++            <head></head>
++            <body>
++              <Metadata />
++              <h1>World</h1>
++            </body>
++          </html>
++        )
++        const rendered = await template.toString()
++        expect(await resolveCallback(rendered, HtmlEscapedCallbackPhase.Stringify, false, {})).toBe(
++          '<html><head><title>Hello</title></head><body><h1>World</h1></body></html>'
++        )
++      })
+     })
+ 
+     describe('link element', () => {
+diff --git a/src/jsx/streaming.test.tsx b/src/jsx/streaming.test.tsx
+index 3f07517a..b64a5eb2 100644
+--- a/src/jsx/streaming.test.tsx
++++ b/src/jsx/streaming.test.tsx
+@@ -30,6 +30,46 @@ describe('Streaming', () => {
+     suspenseCounter++
+   })
+ 
++  it('Suspense / async component returning an array', async () => {
++    const Content = async () => {
++      await new Promise((resolve) => setTimeout(resolve, 10))
++      return [<h1>Hello</h1>, <h2>World</h2>]
++    }
++
++    const stream = renderToReadableStream(
++      <Suspense fallback={<p>Loading...</p>}>
++        <Content />
++      </Suspense>
++    )
++
++    const chunks = []
++    const textDecoder = new TextDecoder()
++    for await (const chunk of stream as any) {
++      chunks.push(textDecoder.decode(chunk))
++    }
++
++    expect(chunks[0]).toBe(
++      `<template id="H:${suspenseCounter}"></template><p>Loading...</p><!--/$-->`
++    )
++    expect(chunks[1]).toContain(
++      `<template data-hono-target="H:${suspenseCounter}"><h1>Hello</h1><h2>World</h2></template>`
++    )
++  })
++
++  it('preserves callbacks in a streamed async component array', async () => {
++    const phases: number[] = []
++    const Content = async () => [
++      raw('Hello', [({ phase }) => void phases.push(phase)]),
++      <span>World</span>,
++    ]
++
++    const html = await drainStream(renderToReadableStream(<Content />))
++
++    expect(html).toBe('Hello<span>World</span>')
++    expect(phases).toEqual([HtmlEscapedCallbackPhase.BeforeStream, HtmlEscapedCallbackPhase.Stream])
++    suspenseCounter--
++  })
++
+   it('Suspense / renderToReadableStream', async () => {
+     let contentEvaluatedCount = 0
+     const Content = () => {
+diff --git a/src/middleware/jsx-renderer/index.test.tsx b/src/middleware/jsx-renderer/index.test.tsx
+index ad65c7a7..63e9ddc4 100644
+--- a/src/middleware/jsx-renderer/index.test.tsx
++++ b/src/middleware/jsx-renderer/index.test.tsx
+@@ -55,6 +55,22 @@ describe('JSX renderer', () => {
+     )
+   })
+ 
++  it('accepts an array result', async () => {
++    const app = new Hono()
++    app.use(jsxRenderer(({ children }) => [<header>Header</header>, <main>{children}</main>]))
++    app.get('/', (c) => c.render(<h1>Hello</h1>, { title: 'Hello' }))
++
++    const res = await app.request('/')
++    expect(await res.text()).toBe(
++      '<!DOCTYPE html><header>Header</header><main><h1>Hello</h1></main>'
++    )
++  })
++
++  it('does not accept a null result', () => {
++    // @ts-expect-error A JSX renderer component must produce renderable content.
++    jsxRenderer(() => null)
++  })
++
+   it('Should get the context object as a 2nd arg', async () => {
+     const app = new Hono()
+     app.use(
+diff --git a/src/middleware/jsx-renderer/index.ts b/src/middleware/jsx-renderer/index.ts
+index 851d014d..1e96f4f3 100644
+--- a/src/middleware/jsx-renderer/index.ts
++++ b/src/middleware/jsx-renderer/index.ts
+@@ -10,7 +10,6 @@ import { Fragment, createContext, jsx, useContext } from '../../jsx'
+ import type { FC, Context as JSXContext, JSXNode, PropsWithChildren } from '../../jsx'
+ import { renderToReadableStream } from '../../jsx/streaming'
+ import type { Env, Input, MiddlewareHandler } from '../../types'
+-import type { HtmlEscapedString } from '../../utils/html'
+ 
+ export const RequestContext: JSXContext<Context<any, any, {}> | null> =
+   createContext<Context | null>(null)
+@@ -20,15 +19,14 @@ type RendererOptions = {
+   stream?: boolean | Record<string, string>
+ }
+ 
+-type Component = (
+-  props: PropsForRenderer & { Layout: FC },
+-  c: Context
+-) => HtmlEscapedString | Promise<HtmlEscapedString>
++type ComponentResult = Exclude<ReturnType<FC>, null>
++
++type Component = (props: PropsForRenderer & { Layout: FC }, c: Context) => ComponentResult
+ 
+ type ComponentWithChildren = (
+   props: PropsWithChildren<PropsForRenderer & { Layout: FC }>,
+   c: Context
+-) => HtmlEscapedString | Promise<HtmlEscapedString>
++) => ComponentResult
+ 
+ const createRenderer =
+   (

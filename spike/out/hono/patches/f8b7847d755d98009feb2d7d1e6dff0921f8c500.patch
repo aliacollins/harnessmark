@@ -1,0 +1,33 @@
+diff --git a/src/middleware/etag/index.test.ts b/src/middleware/etag/index.test.ts
+index 3fde19ae..a05fbc30 100644
+--- a/src/middleware/etag/index.test.ts
++++ b/src/middleware/etag/index.test.ts
+@@ -268,6 +268,14 @@ describe('Etag Middleware', () => {
+     })
+     expect(res.status).toBe(304)
+ 
++    // conditional GET with matching ETag among list, OWS before the comma (RFC 9110):
++    res = await app.request('http://localhost/etag/ghi', {
++      headers: {
++        'If-None-Match': `"mismatch 1", ${etagHeaderValue} , "mismatch 2"`,
++      },
++    })
++    expect(res.status).toBe(304)
++
+     // conditional GET with `*` wildcard:
+     res = await app.request('http://localhost/etag/ghi', {
+       headers: {
+diff --git a/src/middleware/etag/index.ts b/src/middleware/etag/index.ts
+index b4f5fd55..7f39cfe9 100644
+--- a/src/middleware/etag/index.ts
++++ b/src/middleware/etag/index.ts
+@@ -31,7 +31,8 @@ const stripWeak = (tag: string) => tag.replace(/^W\//, '')
+ 
+ function etagMatches(etag: string, ifNoneMatch: string | null) {
+   return (
+-    ifNoneMatch != null && ifNoneMatch.split(/,\s*/).some((t) => stripWeak(t) === stripWeak(etag))
++    ifNoneMatch != null &&
++    ifNoneMatch.split(',').some((t) => stripWeak(t.trim()) === stripWeak(etag))
+   )
+ }
+ 

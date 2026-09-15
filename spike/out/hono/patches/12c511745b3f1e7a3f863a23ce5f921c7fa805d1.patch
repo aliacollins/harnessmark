@@ -1,0 +1,123 @@
+diff --git a/src/middleware/cache/index.test.ts b/src/middleware/cache/index.test.ts
+index a42e61ee..31461af6 100644
+--- a/src/middleware/cache/index.test.ts
++++ b/src/middleware/cache/index.test.ts
+@@ -417,3 +417,86 @@ describe('Cache Middleware', () => {
+     expect(res.headers.get('cache-control')).toBe(null)
+   })
+ })
++
++describe('Cache Skipping Logic', () => {
++  let putSpy: ReturnType<typeof vi.fn>
++
++  beforeEach(() => {
++    putSpy = vi.fn()
++    const mockCache = {
++      match: vi.fn().mockResolvedValue(undefined), // Always miss
++      put: putSpy, // We spy on this
++      keys: vi.fn().mockResolvedValue([]),
++    }
++
++    vi.stubGlobal('caches', {
++      open: vi.fn().mockResolvedValue(mockCache),
++    })
++  })
++
++  afterEach(() => {
++    vi.restoreAllMocks()
++  })
++
++  it('Should NOT cache response if Cache-Control contains "private"', async () => {
++    const app = new Hono()
++    app.use('*', cache({ cacheName: 'skip-test', wait: true }))
++    app.get('/', (c) => {
++      c.header('Cache-Control', 'private, max-age=3600')
++      return c.text('response')
++    })
++
++    const res = await app.request('/')
++    expect(res.status).toBe(200)
++    // IMPORTANT: put() should NOT be called
++    expect(putSpy).not.toHaveBeenCalled()
++  })
++
++  it('Should NOT cache response if Cache-Control contains "no-store"', async () => {
++    const app = new Hono()
++    app.use('*', cache({ cacheName: 'skip-test', wait: true }))
++    app.get('/', (c) => {
++      c.header('Cache-Control', 'no-store')
++      return c.text('response')
++    })
++
++    await app.request('/')
++    expect(putSpy).not.toHaveBeenCalled()
++  })
++
++  it('Should NOT cache response if Cache-Control contains no-cache="Set-Cookie"', async () => {
++    const app = new Hono()
++    app.use('*', cache({ cacheName: 'skip-test', wait: true }))
++    app.get('/', (c) => {
++      c.header('Cache-Control', 'no-cache="Set-Cookie"')
++      return c.text('response')
++    })
++
++    await app.request('/')
++    expect(putSpy).not.toHaveBeenCalled()
++  })
++
++  it('Should NOT cache response if Set-Cookie header is present', async () => {
++    const app = new Hono()
++    app.use('*', cache({ cacheName: 'skip-test', wait: true }))
++    app.get('/', (c) => {
++      c.header('Set-Cookie', 'session=secret')
++      return c.text('response')
++    })
++
++    await app.request('/')
++    expect(putSpy).not.toHaveBeenCalled()
++  })
++
++  it('Should cache normal responses (Control Test)', async () => {
++    const app = new Hono()
++    app.use('*', cache({ cacheName: 'skip-test', wait: true }))
++    app.get('/', (c) => {
++      return c.text('response')
++    })
++
++    await app.request('/')
++    // IMPORTANT: put() SHOULD be called for normal responses
++    expect(putSpy).toHaveBeenCalled()
++  })
++})
+diff --git a/src/middleware/cache/index.ts b/src/middleware/cache/index.ts
+index c6ec9484..1f4c311a 100644
+--- a/src/middleware/cache/index.ts
++++ b/src/middleware/cache/index.ts
+@@ -14,10 +14,23 @@ const defaultCacheableStatusCodes: ReadonlyArray<StatusCode> = [200]
+ 
+ const shouldSkipCache = (res: Response) => {
+   const vary = res.headers.get('Vary')
+-  // Don't cache for Vary: *
+-  // https://www.rfc-editor.org/rfc/rfc9111#section-4.1
+-  // Also note that some runtimes throw a TypeError for it.
+-  return vary && vary.includes('*')
++  if (vary && vary.includes('*')) {
++    return true
++  }
++
++  const cacheControl = res.headers.get('Cache-Control')
++  if (
++    cacheControl &&
++    /(?:^|,\s*)(?:private|no-(?:store|cache))(?:\s*(?:=|,|$))/i.test(cacheControl)
++  ) {
++    return true
++  }
++
++  if (res.headers.has('Set-Cookie')) {
++    return true
++  }
++
++  return false
+ }
+ 
+ /**

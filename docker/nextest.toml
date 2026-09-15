@@ -1,0 +1,13 @@
+# cargo-nextest profile used by the benchmark for Rust repos. Passed with
+# --config-file so the repo under test needs no nextest config of its own.
+# junit.path is relative to target/nextest/<profile>/, which is where
+# harness/reporters.mjs ("cargo-nextest-junit") reads it back.
+[profile.bench]
+retries = 0
+fail-fast = false
+slow-timeout = { period = "120s", terminate-after = 2 }
+
+[profile.bench.junit]
+path = "junit.xml"
+store-success-output = false
+store-failure-output = true
