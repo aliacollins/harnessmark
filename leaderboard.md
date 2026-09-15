@@ -1,6 +1,7 @@
 # Leaderboard
 
-- Generated: 2026-09-15T04:45:23.283Z
+- HarnessMark version: 1.0.0
+- Generated: 2026-09-15T06:40:16.151Z
 - Runs directory: `runs`
 - Runs included: 1
 - Task prompt version: 3 (runs under version(s) 1, 2 excluded: different input, not comparable)

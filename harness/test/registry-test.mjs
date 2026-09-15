@@ -1,4 +1,4 @@
-import {EVAL_REASONS, FAILURE_MODES, INFRA_FAILURE_MODES, LANG_TEST_RES, LEAK_KINDS, PROVIDER_ERROR_RE, REPOS, activeRepos, isTestPath, redactSpec, repoIdentity, taskPrompt, taskSpec, taskSpecRaw, TASK_INSTRUCTIONS, PROMPT_VERSION} from "../registry.mjs"
+import {BENCHMARK_VERSION, EVAL_REASONS, FAILURE_MODES, INFRA_FAILURE_MODES, LANG_TEST_RES, LEAK_KINDS, PROVIDER_ERROR_RE, REPOS, activeRepos, isTestPath, redactSpec, repoIdentity, taskPrompt, taskSpec, taskSpecRaw, TASK_INSTRUCTIONS, PROMPT_VERSION} from "../registry.mjs"
 import {REPORTERS} from "../reporters.mjs"
 
 let pass = 0
@@ -76,6 +76,7 @@ for (const [key, spec] of Object.entries(REPOS)) {
 const langs = new Set(Object.values(REPOS).map(r => r.lang))
 ok(["ts", "python", "go", "rust"].every(l => langs.has(l)), "corpus spans TypeScript, Python, Go and Rust")
 ok(Object.keys(REPOS).length >= 12, "at least twelve repos registered")
+ok(/^\d+\.\d+\.\d+$/.test(BENCHMARK_VERSION), "BENCHMARK_VERSION is semver")
 ok(activeRepos().map(r => r.name).join(",") === "immer,hono", "only immer and hono are active until harvested")
 
 console.log("== isTestPath per language ==")

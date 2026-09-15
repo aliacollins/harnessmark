@@ -11,7 +11,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import {pathToFileURL} from "node:url"
-import {ROOT, RUNS_DIR} from "../harness/registry.mjs"
+import {BENCHMARK_VERSION, ROOT, RUNS_DIR} from "../harness/registry.mjs"
 import {
 	EFFICIENCY_HEADERS,
 	TASK_KEY_SEP,
@@ -255,6 +255,7 @@ export function buildLeaderboard(runsDir = RUNS_DIR, {promptVersion = null} = {}
 
 	return {
 		schema: LEADERBOARD_SCHEMA,
+		benchmark_version: BENCHMARK_VERSION,
 		generated_at: new Date().toISOString(),
 		runs_dir: path.relative(ROOT, runsDir) || ".",
 		error: error || null,
@@ -331,6 +332,7 @@ export function renderLeaderboard(lb) {
 	const lines = []
 	lines.push("# Leaderboard")
 	lines.push("")
+	lines.push(`- HarnessMark version: ${lb.benchmark_version ?? BENCHMARK_VERSION}`)
 	lines.push(`- Generated: ${lb.generated_at}`)
 	lines.push(`- Runs directory: \`${inline(lb.runs_dir)}\``)
 	lines.push(`- Runs included: ${lb.runs.length}`)

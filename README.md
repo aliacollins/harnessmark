@@ -158,6 +158,16 @@ lookup rate are in [leaderboard.md](leaderboard.md). No reference-harness run
 exists yet for that model, so its lift is not yet computed. Prompt v1/v2 runs
 were retracted after the answer-lookup audit (see METHODOLOGY).
 
+## Versioning
+
+This is **HarnessMark 1** (`1.0.0`). The prompt, grading rules, frozen sets and
+audit rules that define it are pinned in [CHANGELOG.md](CHANGELOG.md), and every
+report prints the version it was generated with. Development moves forward from
+here: additive changes (new sets, adapters, columns) bump the minor version and
+leave existing numbers standing; anything that makes old and new results
+non-comparable bumps the major version and starts a new leaderboard. Results
+are only ever compared within a major version.
+
 ## License
 
 HarnessMark's code, docs, frozen sets and results are licensed under the

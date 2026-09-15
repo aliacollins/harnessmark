@@ -416,6 +416,13 @@ export function loadTasks(repo) {
 // GitHub: 96 of 250 Claude Code trials, 21 of 50 reference, 27 of 50 pi.
 export const PROMPT_VERSION = 3
 
+// The benchmark release. Major bumps when a result under the new version is
+// not comparable with one under the old (prompt, grading, frozen sets, audit
+// rules); minor for additive changes (new sets, adapters, columns); patch for
+// fixes that alter no number. Reports and the leaderboard print it, and
+// CHANGELOG.md records what each version changed.
+export const BENCHMARK_VERSION = "1.0.0"
+
 export const TASK_INSTRUCTIONS = [
 	"Implement the change described below in the git repository at your current working directory.",
 	"Edit the source so the described behaviour works and the existing tests keep passing.",

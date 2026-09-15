@@ -2,7 +2,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import {pathToFileURL} from "node:url"
-import {DATASET_DIR, INFRA_FAILURE_MODES, PROVIDER_ERROR_RE, RUNS_DIR, TELEMETRY_FIELDS} from "../harness/registry.mjs"
+import {BENCHMARK_VERSION, DATASET_DIR, INFRA_FAILURE_MODES, PROVIDER_ERROR_RE, RUNS_DIR, TELEMETRY_FIELDS} from "../harness/registry.mjs"
 import {estimateCost, PRICES_AS_OF, PRICES_SOURCE} from "../harness/prices.mjs"
 import {aggregateTopology, mergeTopology, normalizeTopology, topologyFromTranscript} from "../harness/topology.mjs"
 
@@ -981,6 +981,7 @@ export function renderMarkdown(report) {
 	lines.push(`# Run report: ${r.id}`)
 	lines.push("")
 	lines.push(`- Run id: \`${inline(r.id)}\``)
+	lines.push(`- Reported with HarnessMark ${BENCHMARK_VERSION}`)
 	lines.push(`- Run directory: \`${inline(r.dir)}\``)
 	lines.push(`- Date: ${r.date ? inline(r.date) : "n/a"}`)
 	lines.push(`- Config: ${r.config == null ? "n/a (not in manifest)" : `\`${inline(r.config)}\``}`)
