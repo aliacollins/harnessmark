@@ -383,6 +383,7 @@ export function summarize(entries) {
 	const topologies = scored.map(e => e.topology)
 	const topology = aggregateTopology(topologies)
 	const tokensOf = e => (isNum(e.telemetry.input_tokens) && isNum(e.telemetry.output_tokens) ? e.telemetry.input_tokens + e.telemetry.output_tokens : null)
+	const cacheReadOf = e => (isNum(e.telemetry.cache_read_tokens) ? e.telemetry.cache_read_tokens : null)
 	// Fewer than three trials per task is too few to separate the harness from
 	// the dice: a single trial cannot tell a 60% harness from a 90% one.
 	const trials_per_task = byTask.size ? scored.length / byTask.size : null
@@ -402,6 +403,7 @@ export function summarize(entries) {
 		cost,
 		cost_per_resolve: costPerResolve(scored),
 		tokens_per_resolve: perResolve(scored, tokensOf),
+		cache_read_per_resolve: perResolve(scored, cacheReadOf),
 		means,
 		failure_modes,
 		topology,
@@ -661,7 +663,7 @@ export function buildReport(runDir, opts = {}) {
 			mean_sample_sizes: "x = scored trials with a value, y = scored trials in the group",
 			trial_semantics: "resolved/rate are per-trial; resolved tasks all/any are per-task over distinct (repo, sha)",
 			lookup: "`lookup rate` is the share of AUDITED scored trials in which the harness fetched the upstream answer (the fix's pull request, diff or post-fix source) during the run. Such a trial is filed as reason `answer_lookup`, counts as a FAILURE in the rate's denominator and is never treated as infra: reaching for the answer is the harness's choice, not the provider's. The evaluator's own verdict is kept as `graded` so the looked-up share of the score is visible. Lines recorded before the audit existed carry no leak record and render n/a, never clean. `ext. network/trial` counts non-fatal external network calls (registries, unrelated hosts) per audited trial.",
-			efficiency: "Topology (tool calls, reads, rereads, tool result chars, per-turn prompt size) is derived from the harness's own transcript and is outcome-blind. `reads` counts read-tool calls; `via_bash` counts shell file dumps separately. `ctx growth` is the last turn's prompt (fresh input + cache read) over the first turn's. Records with no interpretable transcript are `n/a`, never 0. `cost/resolve` divides total cost by resolved trials among the trials that report a cost. `†` marks a provisional group with fewer than 3 scored trials per task."
+			efficiency: "Topology (tool calls, reads, rereads, tool result chars, per-turn prompt size) is derived from the harness's own transcript and is outcome-blind. `reads` counts read-tool calls; `via_bash` counts shell file dumps separately. `ctx growth` is the last turn's prompt (fresh input + cache read) over the first turn's. Records with no interpretable transcript are `n/a`, never 0. `cost/resolve` divides total cost by resolved trials among the trials that report a cost. `fresh tokens/resolve` is (input_tokens + output_tokens) per resolved trial -- cache reads excluded because they are priced at a fraction of fresh input and must be compared separately; `cache reads/resolve` is cache_read_tokens per resolved trial. Two harnesses at the same fresh-token count can differ sharply on cost if one is cache-heavy. `†` marks a provisional group with fewer than 3 scored trials per task."
 		},
 		groups,
 		categories,
@@ -841,13 +843,14 @@ const SUMMARY_HEADERS = [
 	"failure modes"
 ]
 
-export const EFFICIENCY_HEADERS = ["95% CI", "cost/resolve", "tokens/resolve", "tool calls/trial", "reads/trial", "reread ratio", "result chars/trial", "ctx growth", "retries/trial", "lookup rate", "ext. network/trial"]
+export const EFFICIENCY_HEADERS = ["95% CI", "cost/resolve", "fresh tokens/resolve", "cache reads/resolve", "tool calls/trial", "reads/trial", "reread ratio", "result chars/trial", "ctx growth", "retries/trial", "lookup rate", "ext. network/trial"]
 
 export function efficiencyCells(s) {
 	return [
 		fmtCi(s),
 		fmtPerResolve(s.cost_per_resolve, "cost"),
 		fmtPerResolve(s.tokens_per_resolve),
+		fmtPerResolve(s.cache_read_per_resolve),
 		fmtTopo(s, topoToolCalls),
 		fmtTopo(s, topoReads),
 		fmtTopo(s, topoReread),

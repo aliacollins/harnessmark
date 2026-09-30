@@ -716,8 +716,8 @@ async function testTrials(f) {
 	eq(lines3.length, 6, "--trials 3 with 2 adapters yields 3 lines each")
 	eq(
 		lines3.map(l => `${l.adapter}:${l.trial}`),
-		["stub:0", "stub:1", "stub:2", "stub2:0", "stub2:1", "stub2:2"],
-		"trials are strictly sequential (all trials of one adapter before the next)"
+		["stub:0", "stub2:0", "stub:1", "stub2:1", "stub:2", "stub2:2"],
+		"trials run in trial-first order (one pass over adapters per trial)"
 	)
 	for (const adapter of ["stub", "stub2"]) {
 		const tl = lines3.filter(l => l.adapter === adapter)
@@ -766,8 +766,41 @@ async function testTrials(f) {
 	eq(rZero.status, 2, "--trials 0 is rejected")
 	const rText = runRunner(f, ["--repo", "synth", "--task", f.shaA, "--adapter", "stub", "--trials", "abc", "--out", path.join(f.base, "runs-trials-text")])
 	eq(rText.status, 2, "--trials abc is rejected")
+	const rConcZero = runRunner(f, ["--repo", "synth", "--task", f.shaA, "--adapter", "stub", "--concurrency", "0", "--out", path.join(f.base, "runs-concurrency-zero")])
+	eq(rConcZero.status, 2, "--concurrency 0 is rejected")
+	const rGateConc = runRunner(f, ["--repo", "synth", "--task", f.shaA, "--adapter", "stub", "--human-gate", "--concurrency", "2", "--out", path.join(f.base, "runs-gate-concurrency")])
+	eq(rGateConc.status, 2, "--human-gate with --concurrency > 1 is rejected")
 
-	return {wall_ms: rDefault.wall_ms + r3.wall_ms + rBT.wall_ms + rET.wall_ms + rZero.wall_ms + rText.wall_ms}
+	return {wall_ms: rDefault.wall_ms + r3.wall_ms + rBT.wall_ms + rET.wall_ms + rZero.wall_ms + rText.wall_ms + rConcZero.wall_ms + rGateConc.wall_ms}
+}
+
+async function testConcurrency(f) {
+	console.log("== --concurrency runs independent items in parallel ==")
+	const outDir = path.join(f.base, "runs-concurrency")
+	const t0 = Date.now()
+	const r = runRunner(f, ["--repo", "synth", "--task", f.shaA, "--adapter", "slow,stub", "--trials", "2", "--concurrency", "2", "--out", outDir])
+	const elapsed = Date.now() - t0
+	eq(r.status, 0, "concurrent run exits 0")
+	const lines = results(outDir)
+	eq(lines.length, 4, "concurrent run emits every item")
+	eq(new Set(lines.map(l => `${l.adapter}:${l.trial}`)).size, 4, "concurrent run emits each (adapter,trial) exactly once")
+	const manifest = JSON.parse(fs.readFileSync(path.join(outDir, "manifest.json"), "utf8"))
+	eq(manifest.config.concurrency, 2, "manifest records concurrency=2")
+	ok(elapsed < 1200, `two workers avoid fully serial execution (wall=${elapsed}ms)`)
+	return {wall_ms: r.wall_ms}
+}
+
+async function testHumanGate(f) {
+	console.log("== --human-gate defaults closed on EOF ==")
+	const outDir = path.join(f.base, "runs-human-gate")
+	const r = runRunner(f, ["--repo", "synth", "--task", f.shaA, "--adapter", "stub", "--human-gate", "--out", outDir])
+	eq(r.status, 0, "human-gated run exits 0 on EOF")
+	const lines = results(outDir)
+	eq(lines.length, 1, "human-gated skip still emits one result")
+	ok((lines[0].error || "").includes("skipped by human gate"), "human-gated EOF skips the task")
+	const manifest = JSON.parse(fs.readFileSync(path.join(outDir, "manifest.json"), "utf8"))
+	eq(manifest.config.human_gate, true, "manifest records human_gate=true")
+	return {wall_ms: r.wall_ms}
 }
 
 async function testTurns(f) {
@@ -1305,6 +1338,8 @@ async function main() {
 	times.budgetDefault = await testBudgetDefaultTrials(f)
 	times.baseline = await testBaselineOnly(f)
 	times.trials = await testTrials(f)
+	times.concurrency = await testConcurrency(f)
+	times.humanGate = await testHumanGate(f)
 	times.turns = await testTurns(f)
 	times.model = await testModel(f)
 	times.chains = await testChains(f)

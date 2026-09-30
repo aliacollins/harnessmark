@@ -28,6 +28,7 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import readline from "node:readline"
 import {spawnSync} from "node:child_process"
 import {fileURLToPath, pathToFileURL} from "node:url"
 import {
@@ -61,6 +62,8 @@ const USAGE = `usage: node runner/run.mjs --repo <r> --task <sha|all> --adapter 
        node runner/run.mjs --set <name> [--repo <r>] [--chain <chain_id|all>] --adapter <name[,name]> --model <m>
                               [--limit N] [--trials N] [--budget-ms N] [--out runs/<id>]
   common: [--state cold|warm] [--keep-state] [--item-budget-ms N] [--model-for <adapter>=<model>]... [--resume]
+          [--concurrency N] run N (task,adapter,trial) items in parallel (default 1)
+          [--human-gate] require a human to type "yes" before each agent gets the worktree
   --set picks a frozen task set from sets/<name>.json; --repo then only selects a
   repo slice of a multi-repo set and --task is not allowed. --model-for pairs one
   adapter with its own model; --model is the default for the rest.`
@@ -239,6 +242,7 @@ function parseArgs(argv) {
 		// items already in results.jsonl are skipped, complete chain trials are
 		// skipped, and partial chain trials are dropped and re-run from step 1.
 		resume: false,
+		humanGate: false,
 		trials: 1,
 		out: null,
 		baselineOnly: false,
@@ -247,6 +251,7 @@ function parseArgs(argv) {
 		set: null,
 		state: "cold",
 		keepState: false,
+		concurrency: 1,
 		modelFor: {},
 		help: false
 	}
@@ -297,6 +302,9 @@ function parseArgs(argv) {
 			case "--resume":
 				cfg.resume = true
 				break
+			case "--human-gate":
+				cfg.humanGate = true
+				break
 			case "--out":
 				cfg.out = take()
 				break
@@ -317,6 +325,9 @@ function parseArgs(argv) {
 				break
 			case "--keep-state":
 				cfg.keepState = true
+				break
+			case "--concurrency":
+				cfg.concurrency = Number.parseInt(take(), 10)
 				break
 			case "--model-for": {
 				const v = take()
@@ -343,6 +354,8 @@ function parseArgs(argv) {
 	}
 	if (cfg.state !== "cold" && cfg.state !== "warm") throw new Error('--state must be "cold" or "warm"')
 	if (cfg.keepState && cfg.state !== "warm") throw new Error("--keep-state only applies to --state warm")
+	if (!Number.isInteger(cfg.concurrency) || cfg.concurrency < 1) throw new Error("--concurrency must be a positive integer")
+	if (cfg.humanGate && cfg.concurrency > 1) throw new Error("--human-gate cannot be combined with --concurrency > 1")
 	if (cfg.limit !== null && (!Number.isInteger(cfg.limit) || cfg.limit < 0)) throw new Error("--limit must be a non-negative integer")
 	if (!Number.isInteger(cfg.trials) || cfg.trials < 1) throw new Error("--trials must be a positive integer")
 	if (cfg.budgetMs !== null && (!Number.isInteger(cfg.budgetMs) || cfg.budgetMs <= 0)) throw new Error("--budget-ms must be a positive integer")
@@ -640,6 +653,32 @@ function shapeEvalResult(res, {repo, task, adapter, model, trial, trials}) {
 	}
 }
 
+// ------------------------------------------------------------- human gate
+
+// Prints a task summary to stderr and waits for the operator to type "yes".
+// Any other input (or EOF) skips the task. Returns true if approved.
+async function humanGate(task, adapter) {
+	const subject = (task.subject || task.sha).slice(0, 100)
+	process.stderr.write("\n┌─ Human gate ───────────────────────────────────────────────────────────────┐\n")
+	process.stderr.write(`│ task    ${task.sha.slice(0, 12)}  ${subject}\n`)
+	process.stderr.write(`│ adapter ${adapter}\n`)
+	process.stderr.write("│\n")
+	process.stderr.write("└─ Allow agent to open the worktree? [yes/no]: ")
+	const rl = readline.createInterface({input: process.stdin, terminal: false})
+	return new Promise(resolve => {
+		let answered = false
+		rl.once("line", line => {
+			answered = true
+			rl.close()
+			const answer = line.trim().toLowerCase()
+			resolve(answer === "yes" || answer === "y")
+		})
+		rl.once("close", () => {
+			if (!answered) resolve(false)
+		})
+	})
+}
+
 // ---------------------------------------------------------------- run
 
 let warned = []
@@ -786,7 +825,9 @@ async function main() {
 		baselines: 0,
 		baselineErrors: 0,
 		stopped: null,
-		interrupted: false
+		interrupted: false,
+		concurrency: cfg.concurrency,
+		human_gate: cfg.humanGate
 	}
 	const manifest = () => {
 		const cloneHead = git(spec.cloneDir, ["rev-parse", "HEAD"])
@@ -817,6 +858,8 @@ async function main() {
 				model_for: cfg.modelFor,
 				state: cfg.state,
 				keep_state: cfg.keepState,
+				concurrency: cfg.concurrency,
+				human_gate: cfg.humanGate,
 				...(cfg.set !== null ? {set: cfg.set} : {}),
 				...(isChain ? {chain: cfg.chain, chain_mode: cfg.chainMode} : {})
 			},
@@ -854,15 +897,21 @@ async function main() {
 	// Baseline is computed once per task (the evaluator's own disk cache makes it
 	// once per task across runs too) and reused by every adapter on that task.
 	const baselineCache = new Map()
-	const getBaseline = async (task, evalWt) => {
-		if (baselineCache.has(task.sha)) return baselineCache.get(task.sha)
-		const base = await evaluator.baseline({repo: cfg.repo, task, dir: evalWt, opts: {}})
-		baselineCache.set(task.sha, base)
-		// Counted here so the number means the same thing in both modes: chains hit
-		// this once per distinct step sha, flat runs once per task, and a cache hit
-		// never inflates either.
-		state.baselines++
-		return base
+	const getBaseline = async (task, evalWtPath) => {
+		if (!baselineCache.has(task.sha)) {
+			// Store the Promise immediately so concurrent workers on the same task
+			// await the same in-flight computation rather than duplicating it.
+			const p = evaluator
+				.baseline({repo: cfg.repo, task, dir: evalWtPath, opts: {}})
+				.then(base => {
+					state.baselines++
+					return base
+				})
+			baselineCache.set(task.sha, p)
+			// On failure, evict so a later worker can retry with its own worktree.
+			p.catch(() => baselineCache.delete(task.sha))
+		}
+		return baselineCache.get(task.sha)
 	}
 
 	// One eval worktree per task: the evaluator mutates `dir` (checkout -f +
@@ -888,14 +937,14 @@ async function main() {
 		return state.interrupted ? 130 : 0
 	}
 
-	taskLoop: for (const task of tasks) {
-		if (state.interrupted) break
-		if (budgetOut()) {
-			state.stopped = {reason: "budget_exceeded", at: iso(), budget_ms: cfg.budgetMs}
-			break
-		}
+	if (cfg.baselineOnly) {
+		for (const task of tasks) {
+			if (state.interrupted) break
+			if (budgetOut()) {
+				state.stopped = {reason: "budget_exceeded", at: iso(), budget_ms: cfg.budgetMs}
+				break
+			}
 
-		if (cfg.baselineOnly) {
 			let line
 			try {
 				const wt = addWorktree(spec.cloneDir, outDir, runId, task.sha, "baseline", task.parent_sha)
@@ -922,57 +971,81 @@ async function main() {
 			if (line.ok) state.baselines++
 			else state.baselineErrors++
 			appendLine(baselinesPath, line)
-			continue
 		}
-
-		if (resume) {
-			let pending = 0
-			for (const adapter of adapterMods) for (let trial = 0; trial < cfg.trials; trial++) if (!resume.done.has(itemKey(task.sha, adapter.name, trial))) pending++
-			if (pending === 0) {
-				resume.skipped += adapterMods.length * cfg.trials
-				continue
+	} else {
+		// Build work queue in trial-first order: one full pass over all tasks per
+		// trial, so partial results are meaningful at any point in the run.
+		const items = []
+		for (let trial = 0; trial < cfg.trials; trial++) {
+			for (const task of tasks) {
+				for (const adapter of adapterMods) {
+					if (resume && resume.done.has(itemKey(task.sha, adapter.name, trial))) {
+						resume.skipped++
+						continue
+					}
+					items.push({task, adapter, trial})
+				}
 			}
 		}
 
-		let evalWt = null
-		let evalWtError = null
-		let base = null
-		let baseError = null
-		try {
-			evalWt = addWorktree(spec.cloneDir, outDir, runId, task.sha, "eval", task.parent_sha)
-			linkDeps(spec.cloneDir, evalWt.path)
-			evalWorktrees.push(evalWt)
-		} catch (e) {
-			evalWtError = e
-		}
-		if (evalWt) {
-			try {
-				base = await getBaseline(task, evalWt.path)
-			} catch (e) {
-				baseError = e
-				state.baselineErrors++
-			}
-		}
+		// LPT (Longest Processing Time first): sort biggest tasks to the front so
+		// workers stay busy and slow tasks don't strand idle workers at the end.
+		const SIZE_ORDER = {XL: 0, L: 1, M: 2, S: 3}
+		items.sort((a, b) => {
+			const trialDiff = a.trial - b.trial
+			if (trialDiff !== 0) return trialDiff
+			return (SIZE_ORDER[a.task.size_bucket] ?? 4) - (SIZE_ORDER[b.task.size_bucket] ?? 4)
+		})
 
-		for (const adapter of adapterMods) {
-			if (state.interrupted) break
-			for (let trial = 0; trial < cfg.trials; trial++) {
-				if (state.interrupted) break
-				// The in-loop budget check only exists to stop repeated trials early.
-				// At the default --trials 1 it would change frozen legacy behaviour
-				// (stopping mid-task and marking the run partial), so gate it.
-				if (cfg.trials > 1 && budgetOut()) {
-					state.stopped = {reason: "budget_exceeded", at: iso(), budget_ms: cfg.budgetMs}
-					break taskLoop
+		// Each worker pulls items from the shared array until empty or stopped.
+		// JS is single-threaded so items.shift() between awaits is race-free.
+		const runNext = async () => {
+			let lastTaskSha = null
+			while (items.length && !state.interrupted) {
+				// At trials=1 replicate legacy behaviour: budget only stops between
+				// tasks, not between adapters within a task. At trials>1 stop freely.
+				if (cfg.trials > 1 || items[0].task.sha !== lastTaskSha) {
+					if (budgetOut()) break
 				}
-				if (resume && resume.done.has(itemKey(task.sha, adapter.name, trial))) {
-					resume.skipped++
-					continue
-				}
+				const {task, adapter, trial} = items.shift()
+				lastTaskSha = task.sha
 				// A single-trial run keeps the frozen <sha>/<adapter> layout; repeated
 				// trials must not overwrite each other, so each gets its own tN dir.
-				const itemDir = cfg.trials === 1 ? path.join(outDir, task.sha, adapter.name) : path.join(outDir, task.sha, adapter.name, `t${trial}`)
+				const itemDir =
+					cfg.trials === 1
+						? path.join(outDir, task.sha, adapter.name)
+						: path.join(outDir, task.sha, adapter.name, `t${trial}`)
 				fs.mkdirSync(itemDir, {recursive: true})
+
+				// Each concurrent item gets its own eval worktree -- the evaluator
+				// mutates its dir (checkout -f + clean), so sharing would cause races.
+				let evalWt = null
+				let evalWtError = null
+				let base = null
+				let baseError = null
+				try {
+					evalWt = addWorktree(
+						spec.cloneDir,
+						outDir,
+						runId,
+						task.sha,
+						`eval-${sanitize(adapter.name)}-t${trial}`,
+						task.parent_sha
+					)
+					linkDeps(spec.cloneDir, evalWt.path)
+					evalWorktrees.push(evalWt)
+				} catch (e) {
+					evalWtError = e
+				}
+				if (evalWt) {
+					try {
+						base = await getBaseline(task, evalWt.path)
+					} catch (e) {
+						baseError = e
+						state.baselineErrors++
+					}
+				}
+
 				let line
 				try {
 					line = await runItem({cfg, spec, runId, outDir, itemDir, task, adapter, trial, evalWt, evalWtError, base, baseError, evaluator, budgetLeft, stateMgr})
@@ -992,15 +1065,21 @@ async function main() {
 				// Every emitted line (success or failure) is self-describing about cost.
 				line.cost = costOf(line.model, line.telemetry)
 				appendLine(resultsPath, line)
+
+				if (evalWt) {
+					const e = removeWorktree(spec.cloneDir, evalWt)
+					if (e) warn(`eval worktree cleanup: ${e}`)
+					const i = evalWorktrees.indexOf(evalWt)
+					if (i >= 0) evalWorktrees.splice(i, 1)
+				}
 			}
 		}
 
-		if (evalWt) {
-			const e = removeWorktree(spec.cloneDir, evalWt)
-			if (e) warn(`eval worktree cleanup: ${e}`)
-			const i = evalWorktrees.indexOf(evalWt)
-			if (i >= 0) evalWorktrees.splice(i, 1)
-		}
+		await Promise.all(Array.from({length: cfg.concurrency}, runNext))
+		// Only mark budget_exceeded if items were left unconsumed; if all items
+		// finished the budget may have been technically exceeded but nothing was cut.
+		if (!state.stopped && items.length > 0 && budgetOut())
+			state.stopped = {reason: "budget_exceeded", at: iso(), budget_ms: cfg.budgetMs}
 	}
 
 	cleanup()
@@ -1080,6 +1159,19 @@ function itemBudget(cfg, left) {
 
 async function runItem({cfg, spec, runId, outDir, itemDir, task, adapter, trial, evalWt, evalWtError, base, baseError, evaluator, budgetLeft, stateMgr}) {
 	const itemStart = Date.now()
+
+	if (cfg.humanGate) {
+		const approved = await humanGate(task, adapter.name)
+		if (!approved) {
+			console.error(`runner: human gate: skipped ${task.sha.slice(0, 12)}/${adapter.name} t${trial}`)
+			return {
+				...resultLine({repo: cfg.repo, task, adapter: adapter.name, model: adapter.model, trial, trials: cfg.trials, patchError: "skipped by human gate"}),
+				telemetry: emptyTelemetry(),
+				adapter_run: normalizeAdapterResult(null, {...adapter, outDir: itemDir}, adapter.model, 0, new Error("skipped by human gate"))
+			}
+		}
+	}
+
 	let wt = null
 	let setupError = null
 	try {

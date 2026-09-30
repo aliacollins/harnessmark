@@ -73,6 +73,27 @@ export const REPOS = {
 		testTimeoutMs: 240_000,
 		installTimeoutMs: 900_000
 	},
+	prisma: {
+		name: "prisma",
+		status: "candidate",
+		lang: "ts",
+		reporter: "vitest-json",
+		image: "harness-bench/prisma:v1",
+		deps: "node_modules",
+		url: "https://github.com/prisma/prisma",
+		license: "Apache-2.0",
+		org: "prisma",
+		repo: "prisma",
+		package: "prisma",
+		cloneDir: path.join(ROOT, "spike/work/prisma"),
+		install: ["corepack", "pnpm", "install", "--frozen-lockfile"],
+		// Prisma is a monorepo: testArgs receives per-commit test file paths and
+		// scopes the Vitest run to exactly those harvested files.
+		testCmd: "corepack",
+		testArgs: files => ["pnpm", "vitest", "run", ...files],
+		testTimeoutMs: 300_000,
+		installTimeoutMs: 1_200_000
+	},
 	zod: {
 		name: "zod",
 		status: "candidate",

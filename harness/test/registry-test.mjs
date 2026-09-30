@@ -90,6 +90,7 @@ eq(REPOS.cobra.testArgs(["cmd/x_test.go", "root_test.go", "cmd/y_test.go"]), ["t
 ok(REPOS.clap.testArgs(["tests/a.rs"]).includes("--profile") && REPOS.clap.testArgs([]).some(a => a.endsWith("docker/nextest.toml")), "rust runs the workspace under the checked-in nextest profile")
 eq(REPOS.immer.testArgs(["__tests__/base.js"]), ["yarn", "vitest", "run", "__tests__/base.js"], "immer argv unchanged")
 eq(REPOS.hono.testArgs(["src/a.test.ts"]), ["vitest", "run", "src/a.test.ts"], "hono argv unchanged")
+eq(REPOS.prisma.testArgs(["packages/client/tests/a.test.ts"]), ["pnpm", "vitest", "run", "packages/client/tests/a.test.ts"], "prisma scopes vitest to harvested files")
 
 // Task prompt: an explicit instruction wraps the commit's own message.
 {
